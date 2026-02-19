@@ -1,8 +1,0 @@
-dist
-build
-node_modules
-*.svg
-*.lock
-*.png
-public
-coverage
