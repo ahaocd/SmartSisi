@@ -1,5 +1,5 @@
 param(
-    [string]$Host = "0.0.0.0",
+    [string]$GatewayHost = "0.0.0.0",
     [int]$Port = 9102,
     [string]$MediaBackend = "ws://127.0.0.1:9002",
     [string]$ControlBackend = "ws://127.0.0.1:9003",
@@ -32,13 +32,19 @@ if ($WithFrpc) {
 
 Push-Location $projectRoot
 try {
-    python -m gateway.app.ws_gateway_server `
-        --host $Host `
-        --port $Port `
-        --media-backend $MediaBackend `
-        --control-backend $ControlBackend `
-        --access-token $AccessToken `
-        --log-level $LogLevel
+    $gatewayArgs = @(
+        "-m", "gateway.app.ws_gateway_server",
+        "--host", $GatewayHost,
+        "--port", "$Port",
+        "--media-backend", $MediaBackend,
+        "--control-backend", $ControlBackend,
+        "--log-level", $LogLevel
+    )
+    if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+        $gatewayArgs += @("--access-token", $AccessToken)
+    }
+
+    & python @gatewayArgs
 } finally {
     if ($frpcProcess -and -not $frpcProcess.HasExited) {
         Stop-Process -Id $frpcProcess.Id -Force -ErrorAction SilentlyContinue
