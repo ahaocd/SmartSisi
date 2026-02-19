@@ -152,6 +152,9 @@ asr/funasr/venv/
 llm/a2a/tools/EasySpider/.temp_to_pub/
 llm/a2a/tools/EasySpider/ElectronJS/tasks/
 
+# Keep local tools folder out of version control
+llm/a2a/tools/
+
 # 3D-Speaker 和 FunAudioLLM（大型模型）
 asr/3D-Speaker/
 test/FunAudioLLM/
