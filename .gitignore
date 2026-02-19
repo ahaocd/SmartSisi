@@ -273,6 +273,15 @@ llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/xhs_cover_*.html
 llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/xhs_cover_*.png
 llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/accounts.ini
 
+# Local-only heavy assets/directories (do not track)
+gui/static/app/
+gui/frontend/public/live2d/
+sisi_rag/langchain/docs/cassettes/
+SISIeyes/components/lvgl/tests/
+SISIeyes/components/lvgl/src/font/
+SISIeyes/components/lvgl/demos/
+SISIeyes/components/lvgl/docs/
+
 # FRP local secrets and runtime files
 gateway/ops/frp/frpc.local.toml
 gateway/ops/frp/*.log
