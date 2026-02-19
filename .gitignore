@@ -264,6 +264,8 @@ evoliu/guild_data/
 
 # Runtime probe outputs (generated)
 runtime/liuye_probe_*.json
+runtime/liuye_interrupt_*.json
+runtime/multimodal/
 
 # Downloaded installer artifact
 gateway/network/tailscale_runtime/*.msi
