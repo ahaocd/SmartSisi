@@ -1,0 +1,312 @@
+[key]
+; Device transport ports
+device_tcp_port = 9001
+device_ws_port = 9002
+device_tcp_target_port = 10001
+; Dedicated control lane (physical separation from media lane)
+control_lane_enabled = true
+control_lane_required = true
+control_tcp_port = 9004
+control_ws_port = 9003
+transport_health_probe_interval_ms = 5000
+; App-layer gateway front door (optional)
+gateway_front_door_enabled = true
+gateway_front_door_host = 0.0.0.0
+gateway_front_door_port = 9102
+gateway_media_backend =
+gateway_control_backend =
+gateway_access_token =
+gateway_max_message_bytes = 2097152
+
+; ===== TTS 引擎（全局） =====
+; 说明：当前只使用 siliconflow
+tts_module = siliconflow
+tts_type = siliconflow
+; 端点
+siliconflow_base_url = https://api.siliconflow.cn/v1
+; 密钥
+siliconflow_api_key = 
+; 模型
+siliconflow_model = FunAudioLLM/CosyVoice2-0.5B
+
+; ===== 角色：思思（对话模型） =====
+; 端点
+sisi_llm_base_url = http://127.0.0.1:8000/v1
+; 密钥
+sisi_llm_api_key = 
+; 模型
+sisi_llm_model = grok-4.1-fast
+; 音色（TTS）
+sisi_voice_uri = speech:doubao-nvshen:tzreijad1y:oxlljsrkkijlbudadaci
+
+; ===== 角色：柳叶（对话模型） =====
+; 端点
+liuye_llm_base_url = http://127.0.0.1:8000/v1
+; 密钥
+liuye_llm_api_key = 
+; 模型
+liuye_llm_model = grok-4.1-thinking
+; 输出控制
+liuye_llm_temperature = 0.8
+liuye_llm_max_tokens = 
+; 音色（TTS）
+liuye_voice_uri = speech:liuye-new-voice-2025:tzreijad1y:guxjouhlkndxdrgnmkhq
+
+; ===== 多模态 LLM（图片/视频统一入口） =====
+; 说明：检测到 image/video 时，强制走这套，不回退到 sisi/liuye 普通LLM
+; 端点
+multimodal_llm_base_url = 
+; 密钥
+multimodal_llm_api_key = 
+; 模型
+multimodal_llm_model = 
+; 协议风格（openai / anthropic）
+multimodal_llm_api_style = anthropic
+; 本地上传图片若要让远程模型可见，需要设置公网可访问的本服务域名（例如 https://your-domain.com）
+multimodal_media_public_base_url =
+
+; ===== 缓存/路径 =====
+; 缓存根目录（不填则默认 SmartSisi/cache_data）
+cache_root = cache_data
+
+; ===== 冒险者公会 / OpenClaw =====
+; WebSocket 地址与令牌（仅公会使用时需要）
+openclaw_ws_url = ws://127.0.0.1:18789
+openclaw_token = 
+
+; ===== 智能体/意图/打断 =====
+; 当前对话路由模式
+chat_module = agent
+intelligent_mode_switch_enabled = false
+; 打断模型（用于快速判定/插话）
+interrupt_model_base_url = https://api.kxaug.xyz/v1
+interrupt_model_api_key = 
+interrupt_model_engine = gemini-2.5-flash
+interrupt_model_max_tokens = 
+interrupt_model_temperature = 0.8
+interrupt_model_enabled = true
+; 工具调用与AgentSS
+agent_use_tools = true
+agent_functions = ["langgraph","sisi_assistant"]
+agentss_base_url = https://www.dmxapi.cn/v1
+agentss_api_key = 
+agentss_model_engine = gemini-2.5-flash-lite
+agentss_max_tokens = 
+; A2A 服务地址
+a2a_server_url = http://localhost:8001
+
+; ===== 记忆 / RAG / 动态提示 =====
+; 记忆LLM（写入/检索）
+memory_llm_base_url = https://api.siliconflow.cn/v1
+memory_llm_api_key = 
+memory_llm_model = Qwen/Qwen2.5-14B-Instruct
+; 记忆向量模型
+memory_embedding_model = BAAI/bge-large-zh-v1.5
+; RAG 生成
+rag_llm_base_url = https://api.siliconflow.cn/v1
+rag_llm_api_key = 
+rag_llm_model = Qwen/Qwen2.5-14B-Instruct
+; RAG 向量模型
+rag_embedding_model = Qwen/Qwen3-Embedding-8B
+; 记忆摘要/历史裁剪
+rolling_summary_enabled = true
+rolling_summary_max_chars = 60
+history_turns_current = 10
+history_turns_older = 2
+history_turns_other = 2
+; 动态提示词（前脑/环境）
+prompt_generator_base_url = https://api.siliconflow.cn/v1
+prompt_generator_api_key = 
+prompt_generator_model = GLM-4.5-X
+prompt_generator_temperature = 0.7
+prompt_generator_max_tokens = 
+; 音频上下文（前脑音频理解）
+audio_context_base_url = https://api.siliconflow.cn/v1
+audio_context_api_key = 
+audio_context_model = Qwen/Qwen3-8B
+audio_context_temperature = 0.6
+audio_context_max_tokens = 
+; 音频人性化分析（可选）
+audio_humanized_base_url = https://api.siliconflow.cn/v1
+audio_humanized_api_key = 
+audio_humanized_model = Qwen/Qwen3-8B
+audio_humanized_temperature = 0.6
+audio_humanized_max_tokens = 
+; 音乐人性化分析（可选）
+music_humanized_base_url = https://api.siliconflow.cn/v1
+music_humanized_api_key = 
+music_humanized_model = Qwen/Qwen3-30B-A3B
+music_humanized_temperature = 0.4
+music_humanized_max_tokens = 
+; 音乐偏好分析（可选）
+music_preference_analysis_base_url = https://api.siliconflow.cn/v1
+music_preference_analysis_api_key = 
+music_preference_analysis_model = Qwen/Qwen3-30B-A3B
+music_preference_analysis_temperature = 0.4
+music_preference_analysis_max_tokens = 
+
+; ===== 模型优化 =====
+llm_optimize_enabled = true
+llm_optimize_url = https://api.siliconflow.cn/v1
+llm_optimize_key = sk-notndepnaeslmjsyratfcpdupdcdttgfnrsrajzqickbgwfq
+llm_optimize_model = deepseek-ai/DeepSeek-V3.2-Exp
+
+; ===== 图像/音乐模型 =====
+; 图像模型（识图/视觉）
+image_model_base_url = https://api.openai-hk.com/v1
+image_model_api_key = 
+image_model_engine = gemini-2.5-pro-preview-05-06
+; 音乐LLM（歌词/音乐理解）
+music_llm_api_url = https://api.openai-hk.com/v1
+music_llm_api_key = 
+music_llm_model = o3
+
+; ===== 音乐识别（ACRCloud） =====
+acrcloud_host = identify-cn-north-1.acrcloud.cn
+acrcloud_access_key = 
+acrcloud_access_secret = 
+acrcloud_timeout = 10
+acrcloud_enabled = true
+
+; ===== ASR（语音识别） =====
+asr_mode = funasr
+local_asr_ip = 127.0.0.1
+local_asr_port = 10197
+
+; ===== 工作流/系统/其他 =====
+; 启动与并发
+start_mode = console
+use_concurrent = false
+; 面板图片/本机服务地址
+sisi_url = 127.0.0.1
+; 代理
+proxy_config = 
+http_proxy = 
+https_proxy = 
+proxy_enabled = false
+; 视频检测
+video_camera_id = 0
+video_detection_classes = person,face
+video_detection_confidence = 0.5
+video_detection_enabled = false
+video_detection_interval = 0.1
+
+; ===== 内容/运营（可选） =====
+; 内容自动化
+content_automation_base_url = https://api.siliconflow.cn/v1
+content_automation_api_key = 
+content_automation_model = deepseek-ai/DeepSeek-V3.2-Exp
+content_automation_temperature = 0.7
+content_automation_max_tokens = 
+content_automation_enabled = true
+; 抖音营销
+douyin_marketing_enabled = true
+douyin_marketing_max_comments = 200
+douyin_marketing_min_comments_required = 10
+douyin_marketing_max_retries = 3
+douyin_marketing_retry_on_failure = true
+douyin_marketing_fallback_to_strategy1 = true
+douyin_marketing_analyze_count_high = 30
+douyin_marketing_analyze_count_medium = 20
+douyin_marketing_analyze_count_low = 10
+douyin_marketing_confidence_threshold_high = 0.8
+douyin_marketing_confidence_threshold_medium = 0.5
+; 抖音营销-文本
+douyin_marketing_text_base_url = https://api.siliconflow.cn/v1
+douyin_marketing_text_api_key = 
+douyin_marketing_text_model = moonshotai/Kimi-K2-Instruct-0905
+douyin_marketing_text_temperature = 0.4
+douyin_marketing_text_max_tokens = 
+; 抖音营销-视觉
+douyin_marketing_vision_base_url = https://api.siliconflow.cn/v1
+douyin_marketing_vision_api_key = 
+douyin_marketing_vision_model = Pro/Qwen/Qwen2-VL-72B-Instruct
+douyin_marketing_vision_temperature = 0.3
+douyin_marketing_vision_max_tokens = 
+; 抖音营销-OCR
+douyin_marketing_ocr_base_url = https://api.siliconflow.cn/v1
+douyin_marketing_ocr_api_key = 
+douyin_marketing_ocr_model = THUDM/GLM-4.1V-9B-Thinking
+douyin_marketing_ocr_temperature = 0.1
+douyin_marketing_ocr_max_tokens = 
+
+; 小红书封面（可选）
+xhs_cover_bg_base_url = https://api-inference.modelscope.cn/
+xhs_cover_bg_api_key = 
+xhs_cover_bg_model = Qwen/Qwen-Image
+xhs_cover_title_base_url = https://api.siliconflow.cn/v1
+xhs_cover_title_api_key = 
+xhs_cover_title_model = deepseek-ai/DeepSeek-V3.2-Exp
+xhs_cover_title_temperature = 0.8
+xhs_cover_title_max_tokens = 
+
+; Asianight（可选）
+asianight_api_url = 
+asianight_api_key = 
+asianight_api_author = ASIANIGHT智能体
+asianight_scraper_limit = 100
+asianight_scraper_interval = 5
+asianight_watermark_enabled = true
+; Asianight-决策
+asianight_decision_base_url = https://www.dmxapi.cn/v1
+asianight_decision_api_key = 
+asianight_decision_model = Qwen/Qwen2.5-Coder-7B-Instruct
+asianight_decision_temperature = 0.3
+asianight_decision_max_tokens = 
+asianight_decision_enabled = true
+; Asianight-组织
+asianight_organize_base_url = https://www.dmxapi.cn/v1
+asianight_organize_api_key = 
+asianight_organize_model = GLM-4.5-Flash
+asianight_organize_temperature = 0.2
+asianight_organize_max_tokens = 
+asianight_organize_enabled = true
+; Asianight-改写
+asianight_rewrite_base_url = https://www.dmxapi.cn/v1
+asianight_rewrite_api_key = 
+asianight_rewrite_model = GLM-4.5-Flash
+asianight_rewrite_temperature = 0.8
+asianight_rewrite_max_tokens = 
+asianight_rewrite_enabled = true
+; Asianight-扩写
+asianight_extend_base_url = https://www.dmxapi.cn/v1
+asianight_extend_api_key = 
+asianight_extend_model = gpt-5-nano
+asianight_extend_temperature = 0.5
+asianight_extend_max_tokens = 
+asianight_extend_enabled = true
+; Asianight-电报采集
+asianight_telegram_api_id = 7285290107
+asianight_telegram_api_hash = AAH1xVAssJV79hSOKUkbdcoUMwegbJ3wxkI
+asianight_telegram_phone = +8613800138000
+
+[auto_play]
+enabled = true
+interval = 600
+url = http://127.0.0.1:6000/get_auto_play_item
+
+[interact]
+playsound = true
+qna = E:\liusisi\SmartSisi\qa\qa.csv
+
+; ===== Realtime (OpenAI/Gemini/Grok) =====
+realtime_provider = openai
+realtime_openai_model = gpt-realtime
+realtime_openai_api_key =
+realtime_openai_ws_url = wss://api.openai.com/v1/realtime
+realtime_openai_client_secret_url = https://api.openai.com/v1/realtime/client_secrets
+realtime_gemini_model = models/gemini-live-2.5-flash-preview
+realtime_gemini_api_key =
+realtime_gemini_ws_url = wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent
+realtime_grok_model = grok-voice-agent
+realtime_grok_api_key =
+realtime_grok_ws_url = wss://api.x.ai/v1/realtime
+realtime_grok_client_secret_url = https://api.x.ai/v1/realtime/client_secrets
+realtime_server_vad_enabled = true
+realtime_interrupt_response_enabled = true
+realtime_vad_threshold = 0.5
+realtime_vad_prefix_padding_ms = 300
+realtime_vad_silence_duration_ms = 500
+realtime_text_buffer_ttl_seconds = 120
+realtime_text_segment_threshold_chars = 180
+realtime_text_segment_min_chars = 80

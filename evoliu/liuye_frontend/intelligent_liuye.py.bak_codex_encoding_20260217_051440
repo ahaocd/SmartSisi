@@ -1,0 +1,2557 @@
+﻿#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+鏅鸿兘鏌冲彾
+TTS璇煶 + 鍐掗櫓鑰呭叕浼?+ 杞婚噺瀵硅瘽
+"""
+
+import os
+import sys
+import json
+import time
+import asyncio
+import logging
+import threading
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+
+# 娣诲姞椤圭洰鏍圭洰褰曞埌璺緞
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+logger = logging.getLogger(__name__)
+
+
+class IntelligentLiuye:
+    """鏅鸿兘鏌冲彾"""
+    
+    def __init__(self):
+        self.name = "鏅鸿兘鏌冲彾"
+        self.version = "3.0.0"  # 鍗囩骇鐗堟湰鍙?
+        self.status = "initializing"
+
+        # ?? ????
+        self.sisi_config = self._load_sisi_config()
+
+        # TTS???native(????TTS) / system(???Sisi??TTS)
+        self.liuye_tts_mode = os.environ.get("LIUYE_TTS_MODE", "system").lower().strip() or "system"
+
+        # ?? TTS?????system??????????
+        self.tts_engine = None
+        self._init_tts_engine()
+
+        # ?? ??????
+        self.system_health = {}
+
+        self.agent_capabilities = self._query_agent_capabilities()
+
+        # 馃敡 宸ュ叿娉ㄥ唽鍣紙鍔ㄦ€佹敞鍐屽伐鍏凤紝涓嶇‖缂栫爜锛?
+        from evoliu.liuye_guild_integration import get_tool_registry
+        self.tool_registry = get_tool_registry()
+        
+        # 馃彴 鍏細绯荤粺闆嗘垚锛堟寜闇€鍒涘缓锛屼笉鐢ㄥ崟渚嬶級
+        self._guild_enabled = os.environ.get("GUILD_ENABLED", "1") == "1"
+        self._guild_unsubscribe = None  # 鍙栨秷璁㈤槄鍑芥暟
+        self._notified_tasks = set()  # 宸查€氱煡鐨勪换鍔D锛堥槻姝㈤噸澶嶉€氱煡锛?
+        self._pending_guild_clarify_task_id = None
+        self._pending_guild_clarify_question = None
+        
+        # 馃敟 鏌冲彾鍥炲鐘舵€佹爣璁帮紙鐢ㄤ簬鍏細浜嬩欢闃熷垪锛?
+        self._is_generating_response = False  # 鏍囪鏌冲彾鏄惁姝ｅ湪鐢熸垚鏂囨湰鍥炲
+        self._response_lock = threading.Lock()  # 淇濇姢鐘舵€佺殑閿?
+        self._pending_guild_events = []  # 寰呭鐞嗙殑鍏細浜嬩欢闃熷垪
+        
+        # 馃敟 璁颁綇鏈€杩戞彁浜ょ殑浠诲姟锛堢敤浜庝笂涓嬫枃鐞嗚В锛?
+        self._latest_submitted_task_id = None  # 鏈€杩戞彁浜ょ殑浠诲姟ID
+        self._latest_submitted_task_time = 0  # 鏈€杩戞彁浜や换鍔＄殑鏃堕棿鎴?
+        
+        # 娉ㄥ唽鍩虹宸ュ叿
+        self._register_base_tools()
+        
+        # 馃敟 娉ㄥ唽鍏細宸ュ叿锛堟寜闇€鍒涘缓鍏細瀹炰緥锛?
+        if self._guild_enabled:
+            self._register_guild_tools()
+
+        self.status = "ready"
+        logger.info(f"[{self.name}] 鏌冲彾绯荤粺鍒濆鍖栧畬鎴?- 鏅鸿兘瀵硅瘽 + TTS + Web鐣岄潰 + 鍏細绯荤粺")
+        logger.info(f"[{self.name}] 鏅鸿兘浣撹兘鍔涘凡鍔犺浇: {len(self.agent_capabilities.get('tools', {}))}涓伐鍏?)
+        logger.info(f"[{self.name}] 宸ュ叿娉ㄥ唽鍣ㄥ凡灏辩华锛屼簨浠舵€荤嚎宸插惎鍔?)
+
+        # MCP SSE妗ユ帴宸插垹闄わ紙涓嶅啀浣跨敤锛?
+
+        # 馃幆 鍚姩鏃惰嚜鍔ㄨ繍琛屼竴娆wenCLI锛堝箓绛夐槻閲嶅锛屼笉渚濊禆鐜鍙橀噺锛?
+        try:
+            self._start_qwen_analysis_background()
+        except Exception:
+            pass
+    
+    @property
+    def guild(self):
+        """鎸夐渶鍒涘缓鍏細瀹炰緥锛堜笉鐢ㄥ崟渚嬶紝鍙傝€冨紑婧愰」鐩級"""
+        if not self._guild_enabled:
+            return None
+        
+        try:
+            from evoliu.guild_supervisor_agent import get_guild_instance
+            guild_instance = get_guild_instance()
+            logger.info(f"[{self.name}] 鉁?鍏細瀹炰緥宸插氨缁?)
+            return guild_instance
+        except Exception as e:
+            logger.error(f"[{self.name}] 鍏細瀹炰緥鍒涘缓澶辫触: {e}")
+            return None
+    
+    def _register_base_tools(self):
+        """娉ㄥ唽鍩虹宸ュ叿锛圡CP鐩稿叧宸插垹闄わ級"""
+        # MCP鐩稿叧宸ュ叿宸插垹闄?
+        logger.info(f"[{self.name}] 鉁?鍩虹宸ュ叿宸叉敞鍐? 0涓紙MCP宸插垹闄わ級")
+    
+    def _register_guild_tools(self):
+        """娉ㄥ唽鍏細宸ュ叿锛堝姩鎬佹敞鍐岋紝涓嶇‖缂栫爜锛?""
+        if not self._guild_enabled:
+            return
+        
+        # 娉ㄥ唽鍏細浠诲姟鎻愪氦锛堜笉鎸囧畾鍐掗櫓鑰咃紝鍏細鑷姩鍒嗛厤锛?
+        self.tool_registry.register(
+            name="submit_task",
+            func=lambda desc: self._submit_task_to_guild(desc),
+            description="鎻愪氦浠诲姟缁欏叕浼氾紙鍏細浼氳嚜鍔ㄥ垎閰嶅悎閫傜殑鍐掗櫓鑰咃級",
+            category="guild",
+            examples=["submit_task('鎼滅储AI璁烘枃')"]
+        )
+        
+        # 娉ㄥ唽鍏細浠诲姟鏌ヨ
+        self.tool_registry.register(
+            name="query_task",
+            func=lambda task_id=None: self._format_guild_task_status(task_id or self._latest_submitted_task_id),
+            description="鏌ヨ鍏細浠诲姟鐘舵€侊紙涓嶆寚瀹歵ask_id鏃讹紝鏌ヨ鏈€杩戞彁浜ょ殑浠诲姟锛?,
+            category="guild",
+            examples=["query_task()", "query_task('task_123')"]
+        )
+        
+        # 娉ㄥ唽鍏細浠诲姟鍋滄
+        self.tool_registry.register(
+            name="abort_task",
+            func=lambda task_id: self._abort_guild_task(task_id),
+            description="鍋滄鍏細浠诲姟",
+            category="guild",
+            examples=["abort_task('task_123')"]
+        )
+        
+        # 娉ㄥ唽鍏細浠诲姟鍒楄〃
+        self.tool_registry.register(
+            name="list_tasks",
+            func=lambda status=None: self._format_guild_task_list(status),
+            description="鍒楀嚭鍏細浠诲姟",
+            category="guild",
+            examples=["list_tasks('running')"]
+        )
+        
+        # 娉ㄥ唽鍏細鎴愬憳鏌ヨ
+        self.tool_registry.register(
+            name="get_members",
+            func=lambda: self._format_guild_members(),
+            description="鑾峰彇鍏細鎴愬憳鍒楄〃",
+            category="guild",
+            examples=["get_members()"]
+        )
+
+        self.tool_registry.register(
+            name="answer_clarification",
+            func=lambda task_id, answer: self._answer_guild_clarification(task_id, answer),
+            description="鍥炵瓟鍏細婢勬竻闂骞剁户缁换鍔?,
+            category="guild",
+            examples=["answer_clarification('task_123','琛ュ厖淇℃伅...')"]
+        )
+        
+        logger.info(f"[{self.name}] 鉁?鍏細宸ュ叿宸叉敞鍐? 6涓?)
+    
+    def _submit_task_to_guild(self, description: str, conversation_context: str = "") -> str:
+        """鎻愪氦浠诲姟缁欏叕浼氾紙鎸夐渶鍒涘缓鍏細瀹炰緥锛?
+        
+        Args:
+            description: 浠诲姟鎻忚堪
+            conversation_context: 瀵硅瘽鍘嗗彶涓婁笅鏂囷紙鍙€夛級
+        
+        馃敟 鍚屾杩斿洖锛氬鏋滈渶瑕佹緞娓咃紝鐩存帴杩斿洖婢勬竻闂
+        """
+        try:
+            # 馃敟 鎸夐渶鍒涘缓鍏細瀹炰緥
+            guild = self.guild
+            if not guild:
+                return "鉂?鍏細绯荤粺鏈惎鐢?
+            
+            # 馃敟 璁㈤槄鍏細浜嬩欢锛堟瘡娆℃彁浜や换鍔℃椂璁㈤槄锛?
+            if self._guild_unsubscribe is None:
+                self._guild_unsubscribe = guild.subscribe(self._on_guild_event)
+            
+            # 馃敟 鏁村悎浠诲姟鎻忚堪鍜屽璇濅笂涓嬫枃
+            full_description = description
+            if conversation_context:
+                full_description = f"{description}\n\n銆愬璇濅笂涓嬫枃銆慭n{conversation_context}"
+            
+            # 鎻愪氦浠诲姟锛堝叕浼氳嚜鍔ㄥ垎閰嶅啋闄╄€咃級
+            task_id = guild.submit_task(full_description)
+            
+            # 馃敟 璁颁綇鏈€杩戞彁浜ょ殑浠诲姟
+            import time
+            self._latest_submitted_task_id = task_id
+            self._latest_submitted_task_time = time.time()
+            
+            # 馃敟 鍒犻櫎鍚屾妫€鏌ワ紝鏀圭敤寮傛浜嬩欢鐩戝惉
+            # 鍏細鍒嗘瀽浠诲姟闇€瑕佹椂闂达紝婢勬竻闂浼氶€氳繃浜嬩欢寮傛閫氱煡
+            
+            return f"鉁?浠诲姟宸叉彁浜ょ粰鍏細锛屼粬浠鍦ㄥ鐞嗕腑~"
+        except Exception as e:
+            logger.error(f"[{self.name}] 鎻愪氦浠诲姟澶辫触: {e}")
+            return f"鉂?鎻愪氦浠诲姟澶辫触: {e}"
+    
+    def _abort_guild_task(self, task_id: str) -> str:
+        """鍋滄鍏細浠诲姟"""
+        try:
+            guild = self.guild
+            if not guild:
+                return "鉂?鍏細绯荤粺鏈惎鐢?
+            
+            guild.abort_task(task_id)
+            return f"鉁?浠诲姟宸插仠姝? {task_id}"
+        except Exception as e:
+            logger.error(f"[{self.name}] 鍋滄浠诲姟澶辫触: {e}")
+            return f"鉂?鍋滄浠诲姟澶辫触: {e}"
+    
+    def _on_guild_event(self, event: dict):
+        """澶勭悊鍏細浜嬩欢锛堢粺涓€鍏ュ彛锛?""
+        event_type = event.get("type")
+        
+        if event_type == "progress":
+            self._on_guild_task_progress(event)
+        elif event_type == "complete":
+            self._on_guild_task_completed(event)
+        elif event_type == "failed":
+            self._on_guild_task_failed(event)
+        elif event_type == "clarify":
+            self._on_guild_task_clarify(event)
+
+    def _on_guild_task_clarify(self, data: dict):
+        """鍏細浠诲姟婢勬竻鍥炶皟锛堝紓姝ヤ簨浠讹級
+        
+        褰撳叕浼氬垎鏋愪换鍔″悗鍙戠幇闇€瑕佹緞娓呮椂锛屼細鍙戝竷姝や簨浠?
+        鏌冲彾鏀跺埌鍚庯紝灏嗘緞娓呴棶棰樺姞鍏TS闃熷垪锛坧riority=6锛夛紝绛夊緟鎾斁
+        """
+        try:
+            task_id = data.get("task_id")
+            question = data.get("question", "")
+            
+            if not question:
+                logger.warning(f"[{self.name}] 鏀跺埌婢勬竻浜嬩欢浣嗛棶棰樹负绌? {task_id}")
+                return
+            
+            logger.info(f"[{self.name}] 鏀跺埌婢勬竻浜嬩欢: {task_id}, 闂: {question[:50]}...")
+            
+            # 淇濆瓨婢勬竻涓婁笅鏂?
+            self._pending_guild_clarify_task_id = task_id
+            self._pending_guild_clarify_question = question
+            
+            # 馃敟 鍏抽敭淇锛氬皢婢勬竻闂鍔犲叆TTS闃熷垪锛屼笉鎵撴柇褰撳墠鎾斁
+            # 浼樺厛绾ц缃负6锛堥珮浜庢甯稿洖澶?锛屼綆浜庢墦鎷涘懠7锛?
+            clarify_text = f"鍝ュ摜锛屾垜闇€瑕佺‘璁や竴涓嬶細{question}"
+            
+            # 璋冪敤绯荤粺TTS锛屽姞鍏ラ槦鍒?
+            self._delegate_to_system_tts(clarify_text, priority=6)
+            
+            logger.info(f"[{self.name}] 鉁?婢勬竻闂宸插姞鍏TS闃熷垪锛坧riority=6锛?)
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 澶勭悊婢勬竻浜嬩欢澶辫触: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def _answer_guild_clarification(self, task_id: str, answer: str) -> str:
+        try:
+            guild = self.guild
+            if not guild:
+                return "鉂?鍏細绯荤粺鏈惎鐢?
+            ok = guild.answer_clarification(task_id, answer)
+            if ok:
+                if self._pending_guild_clarify_task_id == task_id:
+                    self._pending_guild_clarify_task_id = None
+                    self._pending_guild_clarify_question = None
+                return "鉁?宸叉彁浜よˉ鍏呬俊鎭紝浠诲姟缁х画鎵ц"
+            return "鉂?鎻愪氦琛ュ厖淇℃伅澶辫触"
+        except Exception as e:
+            logger.error(f"[{self.name}] 鎻愪氦婢勬竻绛旀澶辫触: {e}")
+            return f"鉂?鎻愪氦婢勬竻绛旀澶辫触: {e}"
+    
+    def _clean_markdown_for_tts(self, text: str) -> str:
+        """娓呯悊 Markdown 绗﹀彿锛岃 TTS 鏇磋嚜鐒?""
+        import re
+        
+        # 鍘绘帀浠ｇ爜鍧?
+        text = re.sub(r'```[\s\S]*?```', '', text)
+        
+        # 鍘绘帀鏍囬绗﹀彿 (##, ###)
+        text = re.sub(r'#{1,6}\s+', '', text)
+        
+        # 鍘绘帀绮椾綋/鏂滀綋 (**, *, __)
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.+?)\*', r'\1', text)
+        text = re.sub(r'__(.+?)__', r'\1', text)
+        
+        # 鍘绘帀琛ㄦ牸绗﹀彿 (|, -)
+        text = re.sub(r'\|', ' ', text)
+        text = re.sub(r'-{3,}', '', text)
+        
+        # 鍘绘帀閾炬帴 [text](url)
+        text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+        
+        # 鍘绘帀鍒楄〃绗﹀彿 (-, *, +)
+        text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+        
+        # 鍘绘帀澶氫綑绌鸿
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        
+        # 鍘绘帀琛岄琛屽熬绌烘牸
+        text = '\n'.join(line.strip() for line in text.split('\n'))
+        
+        return text.strip()
+    
+    def _on_guild_task_progress(self, data: dict):
+        """鍏細浠诲姟杩涘害鍥炶皟锛堝叏鏃跺弻宸ユ帹閫侊級"""
+        task_id = data.get("task_id", "unknown")
+        progress = data.get("progress", "")
+        logger.info(f"[{self.name}] 馃搳 浠诲姟杩涘害: {task_id} - {progress}")
+        
+        # 鍙互涓诲姩閫氱煡鐢ㄦ埛锛堥€氳繃TTS锛?
+        # self._generate_liuye_tts(f"浠诲姟杩涘睍锛歿progress[:50]}")
+    
+    def _on_guild_task_completed(self, data: dict):
+        """鍏細浠诲姟瀹屾垚鍥炶皟"""
+        task_id = data.get("task_id", "unknown")
+        result = data.get("result")  # 馃敟 涓嶈缃粯璁ゅ€硷紝鍏佽None
+        description = data.get("description", "")
+        logger.info(f"[{self.name}] 鉁?浠诲姟瀹屾垚: {task_id}")
+        
+        # 馃敟 闃叉閲嶅閫氱煡锛堝悓涓€涓换鍔″彧閫氱煡涓€娆★級
+        if task_id in self._notified_tasks:
+            logger.info(f"[{self.name}] 鈴笍  浠诲姟宸查€氱煡杩囷紝璺宠繃: {task_id}")
+            return
+        
+        # 馃敟 鍙€氱煡鏈夌粨鏋滅殑浠诲姟
+        if result is None or not result:
+            logger.info(f"[{self.name}] 鈴笍  浠诲姟鏃犵粨鏋滐紝璺宠繃閫氱煡: {task_id}")
+            return
+        
+        # 馃敟 涓诲姩閫氱煡鐢ㄦ埛锛堥€氳繃TTS锛?
+        try:
+            # 鏍囪涓哄凡閫氱煡
+            self._notified_tasks.add(task_id)
+            
+            # 馃敟 娓呯悊 Markdown 绗﹀彿锛岃 TTS 鏇磋嚜鐒?
+            clean_result = self._clean_markdown_for_tts(result)
+            
+            # 馃敟 淇锛氬彂閫佸畬鏁寸粨鏋滅粰 TTS锛屼笉瑕佹埅鏂?
+            # 濡傛灉缁撴灉澶暱锛堣秴杩?500 瀛楋級锛屾墠杩涜鏅鸿兘鎽樿
+            if len(clean_result) > 500:
+                # 鏅鸿兘鎽樿锛氬彇鍓?300 瀛?+ 鏈€鍚?100 瀛?
+                summary = clean_result[:300] + "... " + clean_result[-100:]
+            else:
+                # 缁撴灉涓嶉暱锛屽畬鏁村彂閫?
+                summary = clean_result
+            
+            notification = f"浠诲姟瀹屾垚鍟︼紒{description[:20]}鐨勭粨鏋滄槸锛歿summary}"
+            logger.info(f"[{self.name}] 馃摙 鍑嗗閫氱煡鐢ㄦ埛: {notification[:50]}...")
+            
+            # 馃敟 妫€鏌ユ煶鍙舵槸鍚︽鍦ㄧ敓鎴愬洖澶?
+            with self._response_lock:
+                if self._is_generating_response:
+                    # 鏌冲彾姝ｅ湪鐢熸垚鍥炲锛屽姞鍏ュ緟澶勭悊闃熷垪
+                    self._pending_guild_events.append({
+                        "type": "complete",
+                        "text": notification
+                    })
+                    logger.info(f"[{self.name}] 鏌冲彾姝ｅ湪鐢熸垚鍥炲锛屽畬鎴愰€氱煡宸插姞鍏ラ槦鍒?)
+                    return
+            
+            # 鏌冲彾绌洪棽锛岀珛鍗虫挱鏀?
+            self._generate_liuye_tts(notification)
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 閫氱煡鐢ㄦ埛澶辫触: {e}")
+    
+    def _on_guild_task_failed(self, data: dict):
+        """鍏細浠诲姟澶辫触鍥炶皟"""
+        task_id = data.get("task_id", "unknown")
+        error = data.get("error", "")
+        description = data.get("description", "")
+        logger.error(f"[{self.name}] 鉂?浠诲姟澶辫触: {task_id} - {error}")
+        
+        # 馃敟 涓诲姩閫氱煡鐢ㄦ埛
+        try:
+            notification = f"浠诲姟澶辫触浜?..{description[:20]}鎵ц鍑洪敊锛歿error[:50]}"
+            logger.info(f"[{self.name}]  鍑嗗閫氱煡鐢ㄦ埛: {notification[:50]}...")
+            
+            # 璋冪敤TTS锛堝鏋滄湁璁惧杩炴帴锛?
+            self._generate_liuye_tts(notification)
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 閫氱煡鐢ㄦ埛澶辫触: {e}")
+    
+    def _process_pending_guild_events(self):
+        """澶勭悊寰呭鐞嗙殑鍏細浜嬩欢闃熷垪"""
+        try:
+            with self._response_lock:
+                if not self._pending_guild_events:
+                    return
+                
+                # 鍙栧嚭鎵€鏈夊緟澶勭悊浜嬩欢
+                events = self._pending_guild_events.copy()
+                self._pending_guild_events.clear()
+            
+            # 渚濇鎾斁
+            for event in events:
+                event_type = event.get("type")
+                text = event.get("text", "")
+                
+                if text:
+                    logger.info(f"[{self.name}] 馃摙 澶勭悊闃熷垪浜嬩欢: {event_type} - {text[:50]}...")
+                    self._generate_liuye_tts(text)
+                    
+        except Exception as e:
+            logger.error(f"[{self.name}] 澶勭悊鍏細浜嬩欢闃熷垪澶辫触: {e}")
+    
+    # === 宸ュ叿鍑芥暟瀹炵幇锛圡CP鐩稿叧宸插垹闄わ級===
+    
+    def _format_guild_task_status(self, task_id: str) -> str:
+        """鏍煎紡鍖栧叕浼氫换鍔＄姸鎬侊紙杩斿洖鑷劧璇█锛岃LLM鑷繁缁勭粐锛?""
+        try:
+            guild = self.guild
+            if not guild:
+                return "鉂?鍏細绯荤粺鏈惎鐢?
+            
+            task_data = guild.storage.load_task(task_id)
+            if not task_data:
+                return f"鉂?浠诲姟涓嶅瓨鍦? {task_id}"
+            
+            status = task_data.get('status', 'unknown')
+            description = task_data.get('description', '鏈煡浠诲姟')
+            created_at = task_data.get('created_at', 0)
+            executor = task_data.get('executor', '鏈煡鎴愬憳')
+            error = task_data.get('error')
+            
+            # 璁＄畻杩愯鏃堕暱
+            import time
+            elapsed = int(time.time() - created_at)
+            elapsed_str = f"{elapsed // 60}鍒唟elapsed % 60}绉? if elapsed >= 60 else f"{elapsed}绉?
+            
+            # 鑾峰彇streams淇℃伅
+            streams = task_data.get('streams', {})
+            assistant_events = streams.get('assistant', [])
+            tool_events = streams.get('tool', [])
+            error_events = streams.get('error', [])
+            
+            # 馃敡 闅忔満鐨勫紑鍦虹櫧锛堟ā鎷熸敹鍒伴楦戒紶涔︼級
+            import random
+            greetings = [
+                "鍝庡憖锛屽叕浼氶偅杈规湁娑堟伅浜嗭紒",
+                "鍡?..鏀跺埌鍏細鐨勯楦戒紶涔︿簡~",
+                "璁╂垜鐪嬬湅鍏細浼犳潵鐨勬秷鎭?..",
+                "鍏細閭ｈ竟鍒氬垰鍥炰俊浜嗭紝",
+                "鍝︼紵鍏細鐨勪俊浣挎潵浜嗭紝",
+                "鏀跺埌浜嗭紝鍏細閭ｈ竟璇?..",
+            ]
+            greeting = random.choice(greetings)
+            
+            # 馃敡 鏍规嵁鐘舵€佽繑鍥炶嚜鐒惰瑷€锛堜笉纭紪鐮佹牸寮忥級
+            if status == "running":
+                if len(assistant_events) > 0:
+                    latest_text = assistant_events[-1].get('text', '')
+                    return f"{greeting}{executor}杩樺湪蹇欐椿鍛€俓n\n浠诲姟鏄細{description}\n\n鏈€鏂拌繘灞曪細{latest_text[:150]}...\n\n宸茬粡杩囧幓{elapsed_str}浜嗐€?
+                elif len(tool_events) > 0:
+                    latest_tool = tool_events[-1].get('name', '')
+                    return f"{greeting}{executor}姝ｅ湪鎵ц宸ュ叿锛歿latest_tool}銆俓n\n浠诲姟鏄細{description}\n\n宸茬粡杩愯{elapsed_str}浜嗭紝鍐嶇瓑绛夌湅..."
+                else:
+                    return f"{greeting}{executor}鎺ュ埌浠诲姟浜嗭紝浣嗚繕娌″紑濮嬪姩鎵嬨€俓n\n浠诲姟鏄細{description}\n\n宸茬粡绛変簡{elapsed_str}浜?.."
+            
+            elif status == "completed":
+                result_text = task_data.get('result', '')
+                if result_text:
+                    return f"{greeting}{executor}瀹屾垚浠诲姟浜嗭紒\n\n浠诲姟鏄細{description}\n\n浠栦滑鐨勫洖澶嶏細\n{result_text[:500]}\n\n鐢ㄦ椂锛歿elapsed_str}"
+                else:
+                    return f"{greeting}{executor}璇翠换鍔″畬鎴愪簡锛屼絾娌＄粰璇︾粏缁撴灉銆俓n\n浠诲姟鏄細{description}\n\n鐢ㄦ椂锛歿elapsed_str}"
+            
+            elif status == "failed":
+                if error:
+                    error_msg = error
+                elif len(error_events) > 0:
+                    error_msg = error_events[-1].get('message', '鏈煡閿欒')
+                else:
+                    error_msg = "浠诲姟澶辫触浜嗭紝浣嗘病璇村師鍥?
+                
+                return f"{greeting}鍞夛紝{executor}閬囧埌闂浜?..\n\n浠诲姟鏄細{description}\n\n浠栦滑璇达細{error_msg}\n\n宸茬粡灏濊瘯浜唟elapsed_str}"
+            
+            else:
+                return f"{greeting}浠诲姟鐘舵€佷笉澶竻妤?..{executor}閭ｈ竟鐨勬儏鍐垫槸锛歿status}\n\n浠诲姟鏄細{description}"
+        
+        except Exception as e:
+            return f"鉂?鏌ヨ澶辫触: {e}"
+    
+    def _format_guild_task_list(self, status: str = None) -> str:
+        """鏍煎紡鍖栧叕浼氫换鍔″垪琛紙杩斿洖鍘熷鏁版嵁锛岃鏌冲彾鑷繁绠€鍖栵級"""
+        try:
+            guild = self.guild
+            if not guild:
+                return "鉂?鍏細绯荤粺鏈惎鐢?
+            
+            tasks = guild.storage.list_tasks(status=status)
+            if not tasks:
+                return "鏆傛棤浠诲姟"
+            
+            # 馃敟 杩斿洖鍘熷鏁版嵁锛岃鏌冲彾鐨凩LM鑷繁杞崲鎴愰€氫織鏄撴噦鐨勮瘽
+            result = "鍏細浠诲姟鍒楄〃:\n"
+            for task in tasks[:5]:  # 鍙樉绀哄墠5涓?
+                result += f"- {task['description'][:100]}... (鐘舵€? {task['status']})\n"
+            return result
+        except Exception as e:
+            return f"鉂?鏌ヨ澶辫触: {e}"
+    
+    def _format_guild_members(self) -> str:
+        """鏍煎紡鍖栧叕浼氭垚鍛樺垪琛?""
+        try:
+            guild = self.guild
+            if not guild:
+                return "鉂?鍏細绯荤粺鏈惎鐢?
+            
+            members = guild.get_members()
+            result = "鍏細鎴愬憳:\n"
+            for member in members:
+                result += f"- {member['name']} ({member['status']})\n"
+                result += f"  鑳藉姏: {', '.join(member['capabilities'][:3])}...\n"
+            return result
+        except Exception as e:
+            return f"鉂?鏌ヨ澶辫触: {e}"
+    
+    def _query_agent_capabilities(self) -> dict:
+        """鏌ヨ鏅鸿兘浣撶郴缁熺殑鑳藉姏"""
+        return {
+            "agents": {},
+            "tools": {},
+            "workflow": "鏅鸿兘浣撹兘鍔涙煡璇㈡湭鍚敤"
+        }
+
+    def _start_qwen_analysis_background(self):
+        """鍚庡彴鍚姩QwenCLI鍒嗘瀽锛堜粠liuye_monitor.py鎭㈠锛?""
+        import threading
+        import asyncio
+
+        # 闃叉閲嶅鍚姩
+        if hasattr(self, "_monitor_running") and getattr(self, "_monitor_running", False):
+            logger.info("[鐩戞帶] 宸插湪杩愯锛岃烦杩囬噸澶嶅惎鍔?)
+            return
+        self._monitor_running = True
+
+        def run_qwen_analysis():
+            try:
+                _qwen_debug = os.environ.get("QWEN_DEBUG", "0") == "1"
+                if _qwen_debug:
+                    logger.info("馃幆 寮€濮婹wenCLI浜虹被鍋忓ソ鍒嗘瀽...")
+
+                # 妫€鏌ユ槸鍚︽湁浜嬩欢寰幆
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 濡傛灉鏈夎繍琛屼腑鐨勫惊鐜紝鍦ㄦ柊绾跨▼涓垱寤烘柊寰幆
+                        asyncio.set_event_loop(asyncio.new_event_loop())
+                        loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # 娌℃湁浜嬩欢寰幆锛屽垱寤烘柊鐨?
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                # 杩愯QwenCLI鍒嗘瀽
+                task_data = {"type": "human_preference_analysis", "data": {}}
+                qwen_result = loop.run_until_complete(self._execute_qwen_analysis_real_async(task_data))
+
+                if qwen_result.get("success"):
+                    if _qwen_debug:
+                        logger.info("鉁?QwenCLI鍒嗘瀽瀹屾垚")
+                else:
+                    logger.error(f"鉂?QwenCLI鍒嗘瀽澶辫触: {qwen_result.get('error')}")
+
+            except Exception as e:
+                logger.error(f"鉂?QwenCLI鍚庡彴鍚姩澶辫触: {e}")
+
+        # 鍦ㄥ悗鍙扮嚎绋嬪惎鍔?
+        self._qwen_thread = threading.Thread(target=run_qwen_analysis, daemon=True)
+        self._qwen_thread.start()
+        if os.environ.get("QWEN_DEBUG", "0") == "1":
+            logger.info("馃幆 QwenCLI鍒嗘瀽宸插湪鍚庡彴鍚姩")
+
+    def start_monitoring(self):
+        """瀵瑰鎻愪緵鐨勫惎鍔ㄦ柟娉曪紙骞傜瓑锛?""
+        try:
+            self._start_qwen_analysis_background()
+        except Exception as e:
+            logger.error(f"[鐩戞帶] 鍚姩澶辫触: {e}")
+
+    def stop_monitoring(self):
+        """瀵瑰鎻愪緵鐨勫仠姝㈡柟娉曪紙褰撳墠鍒嗘瀽涓轰竴娆℃€э紝鎻愪緵骞傜瓑鍗犱綅浠ュ吋瀹规棫璋冪敤锛?""
+        try:
+            self._monitor_running = False
+        except Exception:
+            pass
+
+    async def _execute_qwen_analysis_real_async(self, task_data: dict) -> dict:
+        """寮傛鐗堟湰鐨凲wenCLI鍒嗘瀽"""
+        return self._execute_qwen_cli_monitoring(task_data)
+
+    # 鍙屾ā鍨嬪喅绛栫郴缁熷凡绉婚櫎
+
+    # OpenAI瀹㈡埛绔垱寤烘柟娉曞凡绉婚櫎
+
+    def _load_sisi_config(self):
+        """鍔犺浇sisi閰嶇疆"""
+        try:
+            # 鐩存帴鍔犺浇system.conf鏂囦欢
+            import os
+            
+            # 鏌ユ壘system.conf鏂囦欢
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            config_file = os.path.join(project_root, "system.conf")
+            
+            if os.path.exists(config_file):
+                # 鐩存帴瑙ｆ瀽system.conf
+                sisi_config = {}
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            sisi_config[key.strip()] = value.strip()
+                
+                logger.info(f"[{self.name}] 鉁?system.conf閰嶇疆鍔犺浇鎴愬姛")
+                return sisi_config
+            else:
+                raise FileNotFoundError("system.conf鏂囦欢涓嶅瓨鍦?)
+                
+        except Exception as config_error:
+            logger.error(f"[{self.name}] system.conf鍔犺浇澶辫触: {config_error}")
+            # 鏃爏ystem.conf鏃朵笉鍐嶄娇鐢ㄥ尰鐤楀寘閰嶇疆锛屼繚鎸佺┖鐨勬煶鍙堕厤缃?
+            sisi_config = {
+                'liuye_llm_model': '',
+                'liuye_llm_api_key': '',
+                'liuye_llm_base_url': '',
+                'liuye_llm_temperature': '0.7',
+                'liuye_llm_max_tokens': '2000'
+            }
+            logger.info(f"[{self.name}] 浣跨敤绌洪厤缃?)
+            return sisi_config
+
+    # 澶氫綑鐨勬櫤鑳芥ā鍧楀垵濮嬪寲鏂规硶宸插垹闄?- 绠€鍖栦负鏅鸿兘瀵硅瘽
+    
+
+
+    def _init_tts_engine(self):
+        """鍒濆鍖朤TS璇煶寮曟搸"""
+        try:
+            if self.liuye_tts_mode == "system":
+                self.tts_engine = None
+                return
+
+            # 浣跨敤鏌冲彾涓撶敤鐨凾TS寮曟搸
+            import sys
+            import os
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            sys.path.insert(0, os.path.join(project_root, "evoliu", "liuye_frontend"))
+
+            from liuye_voice_tts import generate_liuye_voice
+            self.tts_engine = generate_liuye_voice
+
+            # TTS閰嶇疆
+            self.tts_config = {
+                "voice_enabled": True,
+                "input_voice": True,    # 鏀寔璇煶杈撳叆
+                "output_voice": True,   # 鏀寔璇煶杈撳嚭
+                "streaming_tts": True,  # 娴佸紡璇煶杈撳嚭
+                "interrupt_support": True  # 鏀寔璇煶鎵撴柇
+            }
+
+            logger.info(f"[{self.name}] 鏌冲彾涓撶敤TTS璇煶寮曟搸鍒濆鍖栧畬鎴?)
+
+        except Exception as e:
+            logger.error(f"[{self.name}] TTS璇煶寮曟搸鍒濆鍖栧け璐? {str(e)}")
+            self.tts_engine = None
+    
+    # 鍔ㄦ€佹彁绀鸿瘝绯荤粺宸插垹闄?- 浣跨敤閰嶇疆妯″瀷鐩存帴瀵硅瘽
+    
+    # 閲嶅鐨勫姩鎬佹彁绀鸿瘝绯荤粺宸插垹闄?
+    
+    def _generate_liuye_tts(self, text: str, priority: int = 5, send_to_web: bool = True):
+        """Delegate all playback to Core (local/device disabled)."""
+        try:
+            return self._delegate_to_system_tts(text, priority=priority, send_to_web=send_to_web)
+            if False:
+                # - detect device online
+                # - use liuye_voice_tts.generate_liuye_voice_streaming
+                # - fallback to _delegate_to_system_tts
+                pass
+        except Exception as e:
+            logger.error(f"[{self.name}] Unified TTS failed: {str(e)}")
+            return False
+
+    def _get_sisi_core_instance(self):
+        """Resolve current SisiCore instance with compatibility fallbacks."""
+        sisi_core_obj = None
+        try:
+            from core import sisi_booter as _booter
+            sisi_core_obj = getattr(_booter, 'sisi_core', None) or getattr(_booter, 'sisiCore', None)
+        except Exception:
+            sisi_core_obj = self._get_sisi_core_instance()
+
+        if sisi_core_obj is None:
+            try:
+                from core import sisi_core as _sisi_core
+                if hasattr(_sisi_core, 'get_sisi_core'):
+                    sisi_core_obj = _sisi_core.get_sisi_core()
+                if not sisi_core_obj and hasattr(_sisi_core, 'sisi_core'):
+                    sisi_core_obj = _sisi_core.sisi_core
+                if not sisi_core_obj and hasattr(_sisi_core, '_sisi_core_instance'):
+                    sisi_core_obj = _sisi_core._sisi_core_instance
+            except Exception:
+                sisi_core_obj = None
+        return sisi_core_obj
+
+    def _delegate_to_system_tts(self, text: str, priority: int = 5, send_to_web: bool = True) -> bool:
+        try:
+            from core.interact import Interact
+            interact = Interact("liuye", 1, {"user": "User", "msg": text})
+            # 鏍囪涓烘煶鍙跺鎵樿皟鐢紝閬垮厤Core鍒ゅ畾涓衡€滃悗缃樁娈甸潪濮旀墭璋冪敤鈥濊€岃烦杩?
+            try:
+                setattr(interact, 'interleaver', 'liuye')
+            except Exception:
+                pass
+
+            sisi_core_obj = self._get_sisi_core_instance()
+            if sisi_core_obj:
+                # 馃敟 淇锛氫笉璁剧疆璺宠繃鏍囧織锛孋ore宸查€氳繃interleaver='liuye'璇嗗埆濮旀墭璋冪敤
+                # Core鐨勯槻閲嶅鏈哄埗浼氳嚜鍔ㄥ鐞嗗悗缃樁娈电殑閲嶅璋冪敤
+                
+                sisi_core_obj.process_audio_response(
+                    text=text,
+                    username="User",
+                    interact=interact,
+                    priority=priority,  # 馃敟 鏀寔鑷畾涔変紭鍏堢骇
+                    send_to_web=send_to_web,
+                )
+                logger.info(f"[{self.name}] 已将柳叶文本交由Core系统TTS播放（priority={priority}, send_to_web={send_to_web}）")
+                return True
+
+            logger.error(f"[{self.name}] Core瀹炰緥涓嶅彲鐢紝鏃犳硶缁熶竴鎾斁")
+            return False
+        except Exception as e:
+            logger.error(f"[{self.name}] 缁熶竴绯荤粺TTS璋冪敤澶辫触: {str(e)}")
+            return False
+
+    def _play_tts_on_computer_from_files(self, audio_files: list, text: str):
+        return
+        if False:
+            if self.liuye_tts_mode != "native":
+                logger.info(f"[{self.name}] system妯″紡锛岃烦杩囨湰鍦版挱鏀?)
+                return
+            try:
+                import pygame
+                import os
+                pygame.mixer.init()
+                audio_file = audio_files[0] if isinstance(audio_files, list) else audio_files
+                if os.path.exists(audio_file):
+                    pygame.mixer.music.load(audio_file)
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        pygame.time.wait(100)
+                    logger.info(f"[{self.name}] 鏈湴鎾斁瀹屾垚: {text[:50]}...")
+                else:
+                    logger.error(f"[{self.name}] 闊抽鏂囦欢涓嶅瓨鍦? {audio_file}")
+            except Exception as e:
+                logger.error(f"[{self.name}] 鏈湴鎾斁澶辫触: {str(e)}")
+
+    def _send_liuye_audio_to_esp32(self, audio_files: list, text: str):
+        """绂佺敤鏂囦欢鐩村彂锛岀粺涓€鐢辩郴缁烼TS閾捐矾锛圤PUS锛夊鐞嗭紝閬垮厤閲嶅鎾斁"""
+        logger.info(f"[{self.name}] 宸茬鐢ㄦ煶鍙舵枃浠剁洿鍙慐SP32锛岀粺涓€璧扮郴缁烼TS閾捐矾")
+            
+    def _play_tts_on_computer(self, text: str):
+        """浠呭湪native妯″紡鏈湴鎾斁锛泂ystem妯″紡璺宠繃"""
+        if self.liuye_tts_mode != "native":
+            logger.info(f"[{self.name}] system妯″紡锛岃烦杩囨湰鍦版挱鏀?)
+            return
+        # native妯″紡宸插湪_generate_liuye_tts閲屽鐞?
+        pass
+            
+    # 閲嶅鐨刾rocess_user_input鏂规硶宸插垹闄?
+    
+    def _check_aug_status(self) -> Dict[str, Any]:
+        """鐪熷疄妫€鏌UG鍜孉I宸ュ叿鐘舵€?""
+        try:
+            import subprocess
+            import shutil
+
+            status = {
+                "timestamp": time.time(),
+                "tools": {},
+                "overall_health": "unknown"
+            }
+
+            # [TARGET] 妫€鏌SCode鏄惁瀹夎
+            try:
+                vscode_path = shutil.which("code")
+                if vscode_path:
+                    result = subprocess.run(["code", "--version"], capture_output=True, text=True, timeout=5)
+                    status["tools"]["vscode"] = {
+                        "available": result.returncode == 0,
+                        "version": result.stdout.split('\n')[0] if result.returncode == 0 else "unknown",
+                        "path": vscode_path
+                    }
+                else:
+                    status["tools"]["vscode"] = {"available": False, "error": "VSCode鏈畨瑁?}
+            except Exception as e:
+                status["tools"]["vscode"] = {"available": False, "error": str(e)}
+
+            # [TARGET] 妫€鏌wenCLI鏄惁瀹夎
+            try:
+                qwen_available = shutil.which("qwen") is not None
+                if qwen_available:
+                    result = subprocess.run(["qwen", "--version"], capture_output=True, text=True, timeout=5)
+                    status["tools"]["qwen_cli"] = {
+                        "available": result.returncode == 0,
+                        "version": result.stdout.strip() if result.returncode == 0 else "unknown"
+                    }
+                else:
+                    status["tools"]["qwen_cli"] = {"available": False, "error": "QwenCLI鏈畨瑁?}
+            except Exception as e:
+                status["tools"]["qwen_cli"] = {"available": False, "error": str(e)}
+
+
+            # 璁＄畻鏁翠綋鍋ュ悍鐘舵€?
+            available_tools = sum(1 for tool in status["tools"].values() if tool.get("available", False))
+            total_tools = len(status["tools"])
+
+            if available_tools >= total_tools * 0.8:
+                status["overall_health"] = "healthy"
+            elif available_tools >= total_tools * 0.5:
+                status["overall_health"] = "degraded"
+            else:
+                status["overall_health"] = "unhealthy"
+
+            logger.info(f"[宸ュ叿妫€鏌 鍙敤宸ュ叿: {available_tools}/{total_tools}, 鏁翠綋鐘舵€? {status['overall_health']}")
+            return status
+
+        except Exception as e:
+            logger.error(f"[宸ュ叿妫€鏌 妫€鏌ュけ璐? {e}")
+            return {"available": False, "error": str(e), "overall_health": "error"}
+    
+    def _analyze_performance(self) -> Dict[str, Any]:
+        """鍒嗘瀽鎬ц兘鎸囨爣"""
+        try:
+            performance = {
+                "response_time": self._measure_response_time(),
+                "throughput": self._measure_throughput(),
+                "error_rate": self._calculate_error_rate(),
+                "resource_efficiency": self._calculate_resource_efficiency(),
+                "user_satisfaction": self._estimate_user_satisfaction()
+            }
+            
+            self.performance_metrics = performance
+            return performance
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 鎬ц兘鍒嗘瀽澶辫触: {str(e)}")
+            return {}
+    
+    
+    async def process_voice_input(self, audio_data: bytes) -> str:
+        """澶勭悊璇煶杈撳叆"""
+        try:
+            # 1. 璇煶璇嗗埆
+            from asr import get_asr_engine
+            asr_engine = get_asr_engine()
+            text = asr_engine.recognize(audio_data)
+            
+            # 2. 鍔ㄦ€佹彁绀鸿瘝鐢熸垚
+            if self.dynamic_prompt_system:
+                dynamic_prompt = await self.dynamic_prompt_system.generate_dynamic_prompt(
+                    text, 
+                    await self.dynamic_prompt_system.analyze_environment_with_qwq("", text)
+                )
+            else:
+                dynamic_prompt = "鏌冲彾鏀跺埌璇煶娑堟伅"
+            
+            # 3. 澶勭悊瀵硅瘽
+            response = await self._process_intelligent_conversation(text, dynamic_prompt)
+            
+            # 4. 璇煶杈撳嚭
+            if self.tts_engine and self.tts_config["output_voice"]:
+                await self._stream_voice_output(response)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 璇煶杈撳叆澶勭悊澶辫触: {str(e)}")
+            return f"璇煶澶勭悊閬囧埌闂: {str(e)}"
+    
+    async def _process_intelligent_conversation(self, text: str, dynamic_prompt: str) -> str:
+        """鏅鸿兘瀵硅瘽澶勭悊锛堝悓姝ョ増鏈殑寮傛鍖呰锛?""
+        try:
+            # 馃敟 淇锛氫紶閫掑墠鑴戣蹇嗭紙brain_prompts锛?
+            user_id = self._get_current_user_id()
+            return self._process_user_input_sync(text, speaker_id=user_id, brain_prompts=dynamic_prompt)
+        except Exception as e:
+            logger.error(f"[{self.name}] 鏅鸿兘瀵硅瘽澶勭悊澶辫触: {str(e)}")
+            return f"瀵硅瘽澶勭悊閬囧埌闂: {str(e)}"
+
+    async def _call_analysis_model_for_conversation(self, text: str) -> str:
+        """璋冪敤閰嶇疆鐨勫垎鏋愭ā鍨嬭繘琛屽璇?""
+        try:
+            # 鑾峰彇鏌冲彾鐨勬彁绀鸿瘝
+            liuye_prompt = self.get_liuye_prompt()
+
+            # 鑾峰彇鍒嗘瀽妯″瀷閰嶇疆
+            analysis_config = self.get_analysis_model_config()
+
+            # 璋冪敤閰嶇疆鐨勫垎鏋愭ā鍨?
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=analysis_config["api_key"],
+                base_url=analysis_config["base_url"]
+            )
+
+            response = client.chat.completions.create(
+                model=analysis_config["model"],  # 浣跨敤閰嶇疆鏂囦欢涓殑妯″瀷
+                messages=[
+                    {"role": "system", "content": liuye_prompt},
+                    {"role": "user", "content": text}
+                ],
+                temperature=analysis_config["temperature"],
+                max_tokens=analysis_config["max_tokens"]
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 鍒嗘瀽妯″瀷璋冪敤澶辫触: {str(e)}")
+            return f"鏌冲彾鏆傛椂鏃犳硶鍥炲簲锛岃绋嶅悗鍐嶈瘯: {str(e)}"
+
+    def _process_emotion_triggers(self, text: str) -> str:
+        """澶勭悊鍥炲涓殑鎯呮劅瑙﹀彂鍣紙涓嶅啀鐢熸垚TTS锛屽洜涓烘祦寮忓凡鎾斁锛?""
+        try:
+            # 瀵煎叆鎯呮劅瑙﹀彂鍣ㄥ鐞嗗嚱鏁?
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            from utils.emotion_trigger import detect_and_trigger_emotions
+
+            # 澶勭悊鎯呮劅瑙﹀彂鍣?
+            clean_text, triggered_emotions = detect_and_trigger_emotions(text)
+
+            if triggered_emotions:
+                logger.info(f"[{self.name}] 澶勭悊浜嗘儏鎰熻Е鍙戝櫒: {triggered_emotions}")
+
+            # 馃敟 淇锛氬垹闄ら噸澶峊TS璋冪敤锛屾祦寮忓鐞嗗凡缁忔挱鏀捐繃浜?
+            # self._generate_liuye_tts(clean_text)  # 鈫?娉ㄩ噴鎺夛紝閬垮厤閲嶅鎾斁
+
+            return clean_text
+
+        except Exception as e:
+            logger.error(f"[{self.name}] 鎯呮劅瑙﹀彂鍣ㄥ鐞嗗け璐? {str(e)}")
+            return text  # 濡傛灉澶勭悊澶辫触锛岃繑鍥炲師鏂囨湰
+
+    # 閲嶅鐨凾TS鏂规硶宸插垹闄?
+
+    # 閲嶅鐨凟SP32鍙戦€佹柟娉曞凡鍒犻櫎
+    
+    async def _stream_voice_output(self, text: str):
+        """娴佸紡璇煶杈撳嚭"""
+        try:
+            if self.tts_engine:
+                # 鍒嗘娴佸紡杈撳嚭
+                sentences = text.split('銆?)
+                for sentence in sentences:
+                    if sentence.strip():
+                        self.tts_engine.say(sentence.strip() + "銆?)
+                        await asyncio.sleep(0.1)  # 娴佸紡闂撮殧
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 娴佸紡璇煶杈撳嚭澶辫触: {str(e)}")
+    
+    def _should_involve_aug(self, text: str) -> bool:
+        """鍒ゆ柇鏄惁闇€瑕丄UG鍙備笌"""
+        aug_keywords = [
+            "浠ｇ爜", "浼樺寲", "淇", "鍒嗘瀽", "璇婃柇", 
+            "鎬ц兘", "閿欒", "bug", "鏀硅繘", "鍗囩骇"
+        ]
+        return any(keyword in text for keyword in aug_keywords)
+    
+    
+    # 杈呭姪鏂规硶
+    def _calculate_health_score(self, health_status: Dict) -> float:
+        """璁＄畻鍋ュ悍鍒嗘暟"""
+        try:
+            cpu_score = 1.0 - (health_status.get("cpu_usage", 0) / 100)
+            memory_score = 1.0 - (health_status.get("memory_usage", 0) / 100)
+            disk_score = 1.0 - (health_status.get("disk_usage", 0) / 100)
+            
+            return (cpu_score + memory_score + disk_score) / 3
+        except:
+            return 0.5
+    
+    def _measure_response_time(self) -> float:
+        """娴嬮噺鍝嶅簲鏃堕棿"""
+        # 妯℃嫙娴嬮噺
+        return 1.2
+
+    # [TARGET] 瀵硅瘽鎺ュ彛鏂规硶
+    def process_user_input(self, user_input: str) -> str:
+        """澶勭悊鐢ㄦ埛鏂囧瓧杈撳叆 - 鍚屾鐗堟湰"""
+        try:
+            # 妫€鏌ユ槸鍚﹀凡鏈変簨浠跺惊鐜?
+            import asyncio
+            try:
+                # 灏濊瘯鑾峰彇褰撳墠寰幆
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 濡傛灉寰幆姝ｅ湪杩愯锛屼娇鐢ㄥ悓姝ュ鐞?
+                    return self._process_user_input_sync(user_input)
+                else:
+                    # 寰幆瀛樺湪浣嗘湭杩愯锛屼娇鐢ㄥ悓姝ュ鐞?
+                    return self._process_user_input_sync(user_input)
+            except RuntimeError:
+                # 娌℃湁浜嬩欢寰幆锛屽垱寤烘柊鐨?
+                return self._process_user_input_sync(user_input)
+        except Exception as e:
+            logger.error(f"[{self.name}] 澶勭悊鐢ㄦ埛杈撳叆澶辫触: {str(e)}")
+            return f"鎶辨瓑锛屽鐞嗘偍鐨勮姹傛椂鍑虹幇浜嗛棶棰橈細{str(e)}"
+
+    def _process_user_input_sync(self, user_input: str, speaker_id: str = None, brain_prompts: str = None, handoff_messages=None) -> str:
+        """鍚屾澶勭悊鐢ㄦ埛杈撳叆 - 璋冪敤鐪熸鐨凙I妯″瀷 + 鏅鸿兘浣撳崗浣?
+        
+        Args:
+            user_input: 鐢ㄦ埛杈撳叆鏂囨湰
+            speaker_id: 璇磋瘽浜篒D锛堝鏋滀负None锛屽垯灏濊瘯鍔ㄦ€佽幏鍙栵級
+            brain_prompts: 鍓嶈剳绯荤粺鎻愪緵鐨勫姩鎬佹彁绀鸿瘝锛堝凡鍑嗗濂斤紝涓嶉樆濉烇級
+        """
+        try:
+            # 馃敟 鏍囪锛氭煶鍙跺紑濮嬬敓鎴愬洖澶?
+            with self._response_lock:
+                self._is_generating_response = True
+            
+            # 馃幆 鍔ㄦ€佽幏鍙栫敤鎴稩D锛堝弬鑰冩€濇€濈郴缁熼€昏緫锛?
+            user_id = self._get_current_user_id(speaker_id)
+
+            if self._pending_guild_clarify_task_id and isinstance(user_input, str) and user_input.strip():
+                text = user_input.strip()
+                if text not in ("璺宠繃", "鍙栨秷", "涓嶇敤浜?):
+                    task_id = self._pending_guild_clarify_task_id
+                    return self._answer_guild_clarification(task_id, text)
+
+            # 浼樺厛瑙ｆ瀽宸ュ叿璋冪敤鏍囪锛屾墽琛屽伐鍏?
+            tool_handled, tool_response = self._intercept_and_execute_tools(user_input)
+            if tool_handled:
+                return self._process_emotion_triggers(tool_response)
+
+            # 馃敟 **鐩存帴璋冪敤AI妯″瀷锛屾棤绠€鍗曞洖澶嶉€昏緫**
+            # 鑾峰彇鏌冲彾鐨勬彁绀鸿瘝
+            liuye_prompt = self.get_liuye_prompt()
+            
+            # 鑾峰彇鍒嗘瀽妯″瀷閰嶇疆
+            analysis_config = self.get_analysis_model_config()
+            
+            # 妫€鏌ラ厤缃槸鍚︽湁鏁?
+            if not analysis_config["api_key"] or not analysis_config["model"]:
+                logger.error(f"[{self.name}] AI妯″瀷閰嶇疆缂哄け")
+                return f"鎴戞槸鏌冲彾锛岀郴缁熼厤缃渶瑕佹鏌ャ€?
+            
+            # 璋冪敤閰嶇疆鐨勫垎鏋愭ā鍨?
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=analysis_config["api_key"],
+                base_url=analysis_config["base_url"]
+            )
+            
+            # === 缁熶竴鐢ㄦ埛ID锛坧ersona-aware canonical identity锛?==
+            # canonical_user_id 鍙厑璁?userN / default_user锛屽苟鎸佷箙鍖栨槧灏勩€?
+            try:
+                from sisi_memory.context_kernel import resolve_canonical_user_id
+
+                canonical_user_id, _ = resolve_canonical_user_id(
+                    voiceprint_user_id=str(user_id) if user_id not in (None, "", 0, "0", "stranger") else None,
+                    speaker_id=str(speaker_id) if speaker_id else None,
+                    fallback="default_user",
+                )
+            except Exception:
+                canonical_user_id = "default_user"
+
+            # === ???????????????????===
+            memory_context_block = ""
+            if brain_prompts and isinstance(brain_prompts, dict):
+                mem = (brain_prompts.get("memory_context") or "").strip()
+                if mem and mem not in ("?????", "???Sisi??", "???????"):
+                    memory_context_block = mem
+            dynamic_prompt_block = ""
+            if brain_prompts and isinstance(brain_prompts, dict):
+                dyn = (brain_prompts.get("dynamic_prompt") or "").strip()
+                if dyn:
+                    dynamic_prompt_block = dyn
+
+
+
+            # === 娓愯繘寮忓巻鍙蹭笂涓嬫枃锛圝SONL 浜嬩欢娴?SoT + 鍙€夋粴鍔ㄦ憳瑕侊級===
+            system_messages = []
+            base_prompt = liuye_prompt or ""
+            if base_prompt:
+                system_messages.append({"role": "system", "content": base_prompt})
+
+            recent_messages = []
+            ref_parts = []
+            if memory_context_block:
+                ref_parts.append(memory_context_block.strip())
+            try:
+                from sisi_memory.chat_history import build_prompt_context, format_messages_as_text
+
+                ctx = build_prompt_context(
+                    user_id=canonical_user_id,
+                    current_mode="liuye",
+                    query_text=(user_input or ""),
+                )
+
+                if ctx.summary_text:
+                    ref_parts.append(ctx.summary_text)
+                if ctx.older_text:
+                    ref_parts.append(ctx.older_text)
+                recent_messages = ctx.recent_messages or []
+            except Exception as e:
+                logger.debug(f"[鏌冲彾涓婁笅鏂嘳 JSONL鍘嗗彶涓嶅彲鐢? {e}")
+            if ref_parts:
+                system_messages.append({"role": "system", "content": "\n\n".join(ref_parts)})
+
+            from evoliu.liuye_frontend.context_builder import build_liuye_messages
+
+            if dynamic_prompt_block:
+                recent_messages = (recent_messages or []) + [{"role": "system", "content": dynamic_prompt_block.strip()}]
+            messages = build_liuye_messages(
+                system_messages=system_messages,
+                recent_messages=recent_messages,
+                handoff_messages=None,
+                user_message=user_input,
+            )
+
+            used_structured_tools = False
+            
+            # 馃敟 娴佸紡tool_calls锛氳竟璇磋瘽杈瑰喅瀹氬伐鍏?
+            tools = None
+            if self._should_use_llm_tools(user_input):
+                tools = self._build_llm_tools_schema()
+                used_structured_tools = True
+
+            response = client.chat.completions.create(
+                model=analysis_config["model"],
+                messages=messages,
+                temperature=analysis_config["temperature"],
+                max_tokens=analysis_config["max_tokens"],
+                tools=tools,  # 馃敟 浼犲叆tools
+                tool_choice="auto" if tools else None,
+                stream=True  # 馃敟 鍚敤娴佸紡
+            )
+            
+            # Stream receive + segmented TTS + tool_calls parsing (provider-tolerant)
+            import re
+            import json
+            seg_buf = ""
+            tool_calls_buffer = []  # accumulated tool_calls
+            panel_sender_core = self._get_sisi_core_instance()
+
+            def _emit_panel_stream(text_delta: str, is_intermediate: bool = True, phase: str = "stream"):
+                """Push liuye text stream to GUI in the same contract as sisi stream."""
+                if not panel_sender_core:
+                    return
+                piece = str(text_delta or "")
+                if not piece.strip():
+                    return
+                try:
+                    panel_sender_core.send_panel_reply(
+                        piece,
+                        username="User",
+                        reply_type="liuye",
+                        is_intermediate=bool(is_intermediate),
+                        phase=phase,
+                    )
+                except Exception as e:
+                    logger.debug(f"[柳叶UI流式] panel push failed: {e}")
+            
+            def _emit_tts_segment(text_segment):
+                """鍙戦€佹枃鏈鍒癟TS"""
+                if not text_segment.strip():
+                    return
+                try:
+                    import re
+                    filtered = text_segment
+                    all_tools = self.tool_registry.list_tools()
+                    if all_tools:
+                        tool_names = []
+                        for t in all_tools:
+                            if isinstance(t, str):
+                                tool_names.append(t)
+                            elif isinstance(t, dict):
+                                n = t.get('name')
+                                if isinstance(n, str) and n:
+                                    tool_names.append(n)
+
+                        if tool_names:
+                            tool_re = '|'.join(re.escape(n) for n in tool_names if n)
+                            filtered = re.sub(rf"\b(?:{tool_re})\([^\)]*\)", "", filtered)
+                            filtered = filtered.replace("```tool_code", "").replace("```", "")
+                            filtered = re.sub(r"\[MCP:[^\]]+\]", "", filtered)
+                            filtered = re.sub(r"\[CALL:[^\]]+\]", "", filtered)
+
+                    if filtered.strip():
+                        # UI text stream is pushed separately via send_panel_reply; avoid duplicate panelReply from TTS path.
+                        self._generate_liuye_tts(filtered.strip(), send_to_web=False)
+                except Exception as e:
+                    logger.error(f"[鏌冲彾娴佸紡TTS] 鍒嗘鎾斁澶辫触: {e}")
+            
+            def _on_token(token: str) -> None:
+                nonlocal seg_buf
+                seg_buf += token
+                _emit_panel_stream(token, is_intermediate=True, phase="stream")
+                if re.search(r"[銆傦紒锛??锝瀪]", seg_buf):
+                    _emit_tts_segment(seg_buf)
+                    seg_buf = ""
+
+            from llm.llm_stream_adapter import consume_chat_completions_stream
+            stream_result = consume_chat_completions_stream(response, on_text_delta=_on_token)
+
+            tool_calls_buffer = stream_result.tool_calls
+            ai_response = stream_result.text
+
+            if not (ai_response or "").strip() and not tool_calls_buffer:
+                ai_response = "鎴戣繖娆℃病鐢熸垚鍑哄唴瀹癸紝浣犲啀璇翠竴閬嶅ソ鍚楋紵"
+            
+            # flush remaining content
+            if seg_buf.strip():
+                _emit_tts_segment(seg_buf)
+            
+            debug_stream = False
+            try:
+                from sisi_memory.context_kernel import get_flag
+
+                debug_stream = get_flag("debug_llm_stream", False)
+            except Exception:
+                debug_stream = False
+
+            if debug_stream:
+                logger.info(f"[鏌冲彾AI鍘熷鍥炲] {ai_response[:500] if ai_response else '(绌?'}")
+                if tool_calls_buffer:
+                    logger.info(f"[鏌冲彾宸ュ叿璋冪敤] {len(tool_calls_buffer)}涓伐鍏? {[tc['function']['name'] for tc in tool_calls_buffer]}")
+                used_structured_tools = True
+
+            # 馃敟 鎵ц宸ュ叿锛堝鏋滄湁锛?
+            if used_structured_tools and tool_calls_buffer:
+                # 鏋勫缓assistant娑堟伅
+                assistant_tool_msg = {
+                    "role": "assistant",
+                    "content": ai_response or "",
+                    "tool_calls": tool_calls_buffer
+                }
+                messages.append(assistant_tool_msg)
+                
+                # 鎵ц鎵€鏈夊伐鍏?
+                for tc in tool_calls_buffer:
+                    tool_name = tc["function"]["name"]
+                    tool_args = tc["function"]["arguments"]
+                    
+                    logger.info(f"[宸ュ叿鎵ц] {tool_name}({tool_args[:100]}...)")
+                    tool_result = self._execute_llm_tool_call(tool_name, tool_args)
+                    
+                    # 娉ㄥ叆鍔ㄦ€佹彁绀鸿瘝
+                    tool_result_with_prompt = self._inject_tool_result_prompt(tool_result)
+                    
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result_with_prompt
+                    })
+                
+                # 馃敟 绗?娆LM璋冪敤锛堟祦寮忥紝杞崲宸ュ叿缁撴灉锛?
+                logger.info(f"[澶氳疆瀵硅瘽] 绗?杞?- 宸ュ叿宸叉墽琛岋紝鍐嶆璋冪敤LLM鐢熸垚鑷劧鍥炲")
+                response2 = client.chat.completions.create(
+                    model=analysis_config["model"],
+                    messages=messages,
+                    temperature=analysis_config["temperature"],
+                    max_tokens=analysis_config["max_tokens"],
+                    stream=True
+                )
+                
+                # Stream receive 2nd reply
+                seg_buf2 = ""
+                
+                def _on_token2(token: str) -> None:
+                    nonlocal seg_buf2
+                    seg_buf2 += token
+                    _emit_panel_stream(token, is_intermediate=True, phase="stream")
+                    if re.search(r"[銆傦紒锛??锝瀪]", seg_buf2):
+                        if self._should_send_to_mobile(seg_buf2):
+                            self._send_to_mobile_device(seg_buf2, "鏌冲彾娑堟伅")
+                            self._generate_liuye_tts("缁撴灉澶暱浜嗭紝鎴戝凡缁忓彂鍒颁綘鎵嬫満涓婂暒~", send_to_web=False)
+                            seg_buf2 = ""
+                        else:
+                            _emit_tts_segment(seg_buf2)
+                            seg_buf2 = ""
+
+                stream_result2 = consume_chat_completions_stream(response2, on_text_delta=_on_token2)
+                ai_response2 = stream_result2.text
+                
+                # 鏈€鍚巉lush鍓╀綑鍐呭
+                if seg_buf2.strip():
+                    if self._should_send_to_mobile(seg_buf2):
+                        self._send_to_mobile_device(seg_buf2, "鏌冲彾娑堟伅")
+                        self._generate_liuye_tts("缁撴灉澶暱浜嗭紝鎴戝凡缁忓彂鍒颁綘鎵嬫満涓婂暒~", send_to_web=False)
+                    else:
+                        _emit_tts_segment(seg_buf2)
+                
+                # 鏇存柊鏈€缁堝洖澶?
+                ai_response = ai_response2 if ai_response2 else ai_response
+                logger.info(f"[澶氳疆瀵硅瘽] 鉁?瀹屾垚1杞璇濓紝鏈€缁堝洖澶? {ai_response[:100]}")
+            
+            elif not used_structured_tools:
+                max_rounds = 3  # 鏈€澶?杞璇濓紙闃叉姝诲惊鐜級
+                current_round = 0
+
+                while current_round < max_rounds:
+                    tool_handled, tool_result = self._intercept_and_execute_tools(ai_response)
+                    if not tool_handled:
+                        break
+
+                    current_round += 1
+                    logger.info(f"[澶氳疆瀵硅瘽] 绗瑊current_round}杞?- 宸ュ叿宸叉墽琛岋紝缁撴灉: {tool_result[:100]}")
+
+                    messages.append({"role": "assistant", "content": ai_response})
+                    
+                    # 馃敟 鍔ㄦ€佹敞鍏ユ彁绀鸿瘝锛氭牴鎹暟鎹暱搴﹁皟鏁?
+                    tool_result_with_prompt = self._inject_tool_result_prompt(tool_result)
+                    messages.append({"role": "system", "content": tool_result_with_prompt})
+
+                    logger.info(f"[澶氳疆瀵硅瘽] 绗瑊current_round}杞?- 鍐嶆璋冪敤LLM鐢熸垚鑷劧鍥炲")
+                    response = client.chat.completions.create(
+                        model=analysis_config["model"],
+                        messages=messages,
+                        temperature=analysis_config["temperature"],
+                        max_tokens=analysis_config["max_tokens"]
+                    )
+
+                    ai_response = response.choices[0].message.content
+                    logger.info(f"[澶氳疆瀵硅瘽] 绗瑊current_round}杞?- LLM鍥炲: {ai_response[:200] if ai_response else '(绌?'}")
+                    
+                    # 馃敟 淇锛氭鏌LM鏄惁杩斿洖绌哄瓧绗︿覆
+                    if not ai_response or not ai_response.strip():
+                        logger.warning(f"[澶氳疆瀵硅瘽] 绗瑊current_round}杞?- LLM杩斿洖绌哄瓧绗︿覆锛岀洿鎺ヤ娇鐢ㄥ伐鍏风粨鏋?)
+                        # 馃敟 涓嶈鎷兼帴濂囨€殑鍥炲锛岀洿鎺ヤ娇鐢ㄥ伐鍏锋墽琛岀粨鏋?
+                        ai_response = tool_result
+                        # 馃敟 鍏抽敭淇锛氭挱鏀惧伐鍏风粨鏋?
+                        try:
+                            # 妫€鏌ユ槸鍚﹂渶瑕佸彂閫佸埌绉诲姩璁惧
+                            if self._should_send_to_mobile(tool_result):
+                                self._send_to_mobile_device(tool_result, "宸ュ叿鎵ц缁撴灉")
+                                self._generate_liuye_tts("缁撴灉澶暱浜嗭紝鎴戝凡缁忓彂鍒颁綘鎵嬫満涓婂暒~", send_to_web=False)
+                            else:
+                                self._generate_liuye_tts(tool_result, send_to_web=False)
+                            logger.info(f"[澶氳疆瀵硅瘽] 鉁?宸叉挱鏀惧伐鍏风粨鏋淭TS")
+                        except Exception as e:
+                            logger.error(f"[澶氳疆瀵硅瘽] 鎾斁宸ュ叿缁撴灉TTS澶辫触: {e}")
+                        break  # 鍋滄澶氳疆瀵硅瘽
+
+                if current_round > 0:
+                    logger.info(f"[澶氳疆瀵硅瘽] 鉁?瀹屾垚{current_round}杞璇濓紝鏈€缁堝洖澶? {ai_response[:100]}")
+            
+            # 鉁?缁熶竴鍘嗗彶 SoT锛氬啓鍏?JSONL 浜嬩欢娴侊紙涓嶅仛鍗虫椂妫€绱紝涓嶉樆濉炲綋鍓嶈疆锛?
+            try:
+                from sisi_memory.chat_history import append_turn
+
+                append_turn(
+                    user_id=canonical_user_id,
+                    mode="liuye",
+                    source="voice",
+                    user_text=user_input,
+                    assistant_text=ai_response,
+                    meta={
+                        "speaker_id": speaker_id or "",
+                        "router_mode": "liuye",
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"[鏌冲彾鍘嗗彶] 鍐欏叆JSONL澶辫触: {e}")
+            
+            # 澶勭悊鍥炲涓殑鎯呮劅瑙﹀彂鍣ㄥ苟鐢熸垚TTS
+            processed_response = self._process_emotion_triggers(ai_response)
+            _emit_panel_stream(processed_response, is_intermediate=False, phase="final")
+            
+            # 馃敟 鏍囪锛氭煶鍙跺洖澶嶅畬鎴?
+            with self._response_lock:
+                self._is_generating_response = False
+            
+            # 馃敟 澶勭悊寰呭鐞嗙殑鍏細浜嬩欢闃熷垪
+            self._process_pending_guild_events()
+            
+            return processed_response
+                
+        except Exception as e:
+            logger.error(f"[{self.name}] AI妯″瀷璋冪敤澶辫触: {str(e)}")
+            
+            # 馃敟 寮傚父鏃朵篃瑕佹爣璁板洖澶嶅畬鎴?
+            with self._response_lock:
+                self._is_generating_response = False
+            
+            return f"鎴戞槸鏌冲彾锛岄亣鍒颁簡鎶€鏈棶棰橈紝璇风◢鍚庡啀璇曘€?
+
+    def _intercept_and_execute_tools(self, text: str) -> (bool, str):
+        """鍗曟椤哄簭鎵弿锛屾寜鍑虹幇椤哄簭渚濇鎵ц骞舵浛鎹細```tool_code``` 鈫?[CALL:] 鈫?绠€鍗曞嚱鏁般€?""
+        try:
+            import re
+
+            processed = text
+            handled_any = False
+
+            # 缁勫悎鍖归厤锛岄€夋嫨鏈€闈犲墠鐨勪竴涓紝鎸夊嚭鐜伴『搴忔墽琛?
+            while True:
+                matches = []
+                code_block = re.search(r"```tool_code\s*([\s\S]*?)```", processed)
+                if code_block:
+                    matches.append((code_block.start(), 'code', code_block))
+                call_match = re.search(r"\[CALL:([^:\]]+)(?::([^\]]+))?\]", processed)
+                if call_match:
+                    matches.append((call_match.start(), 'call', call_match))
+                
+                # 馃敟 鍔ㄦ€佸尮閰嶆墍鏈夋敞鍐岀殑宸ュ叿锛堜笉纭紪鐮侊級
+                all_tools = self.tool_registry.list_tools()
+                if all_tools:
+                    tool_name_list = []
+                    for t in all_tools:
+                        if isinstance(t, str):
+                            tool_name_list.append(t)
+                        elif isinstance(t, dict):
+                            n = t.get('name')
+                            if isinstance(n, str) and n:
+                                tool_name_list.append(n)
+
+                    tool_names = '|'.join(re.escape(n) for n in tool_name_list if n)
+                    simple_pattern = f"({tool_names})\\([^\\)]*\\)"
+                    simple_match = re.search(simple_pattern, processed)
+                    if simple_match:
+                        matches.append((simple_match.start(), 'simple', simple_match))
+
+                if not matches:
+                    break
+
+                matches.sort(key=lambda x: x[0])
+                _, kind, m = matches[0]
+
+                if kind == 'code':
+                    code = m.group(1).strip()
+                    logger.info(f"[宸ュ叿璋冪敤] type=code line={code[:120]}")
+                    result = self._execute_tool_line(code) or ""
+                    logger.info(f"[宸ュ叿鎵ц] type=code len={len(result)}")
+                    processed = processed[: m.start()] + result + processed[m.end():]
+                    handled_any = True
+                    continue
+
+                if kind == 'call':
+                    action = m.group(1).strip().lower()
+                    arg = (m.group(2) or "").strip()
+                    logger.info(f"[宸ュ叿璋冪敤] type=call action={action} arg={arg}")
+                    result = self._execute_call_action(action, arg) or ""
+                    logger.info(f"[宸ュ叿鎵ц] type=call action={action} len={len(result)}")
+                    processed = processed[: m.start()] + result + processed[m.end():]
+                    handled_any = True
+                    continue
+
+                if kind == 'simple':
+                    cmd = m.group(0)
+                    result = self._execute_tool_line(cmd) or ""
+                    processed = processed[: m.start()] + result + processed[m.end():]
+                    handled_any = True
+                    continue
+
+            # 娓呯悊娈嬬暀鏍囪
+            if "[CALL:" in processed:
+                processed = re.sub(r"\[CALL:[^\]]+\]", "", processed)
+                processed = processed.strip()
+
+            if handled_any:
+                logger.info(f"[TTS_FINAL_CANDIDATE] text={processed[:200]}")
+            return (handled_any, processed if handled_any else text)
+        except Exception as e:
+            logger.error(f"[{self.name}] 宸ュ叿鎷︽埅澶辫触: {e}")
+            return False, text
+    
+    def _inject_tool_result_prompt(self, tool_result: str) -> str:
+        """鍦ㄥ伐鍏疯繑鍥炴暟鎹墠闈㈡敞鍏ュ姩鎬佹彁绀鸿瘝锛屾寚瀵糒LM濡備綍杞崲"""
+        result_length = len(tool_result)
+        
+        # 鏍规嵁鏁版嵁闀垮害璋冩暣鎻愮ず璇?
+        if result_length > 500:
+            prompt = f"""銆愬伐鍏疯繑鍥炴暟鎹浆鎹㈡寚鍗椼€?
+浠ヤ笅鏄伐鍏疯繑鍥炵殑鍘熷鏁版嵁锛坽result_length}瀛楋級锛岃灏嗗叾杞崲鎴愰€氫織鏄撴噦鐨勮瘽锛?
+
+**閲嶈瑙勫垯锛?*
+1. 涓嶈璇磘ask_id銆乺unning銆乸ending銆乻tatus杩欎簺鎶€鏈湳璇?
+2. 鐢?姝ｅ湪澶勭悊"銆?绛夊緟涓?銆?宸插畬鎴?杩欐牱鐨勬棩甯哥敤璇?
+3. 鏁版嵁澶暱浜嗭紝鍙畝鍗曟鎷噸鐐癸紝涓嶈鍏ㄩ儴鎾姤
+4. 鐢ㄨ交鏉炬椿娉肩殑璇皵锛屽儚涓创蹇冪殑濡瑰
+5. 濡傛灉鏈夊涓换鍔★紝鍙鍓?涓紝鍏朵粬鐨勮"杩樻湁X涓?
+
+**鍘熷鏁版嵁锛?*
+{tool_result}
+"""
+        elif result_length > 200:
+            prompt = f"""銆愬伐鍏疯繑鍥炴暟鎹浆鎹㈡寚鍗椼€?
+浠ヤ笅鏄伐鍏疯繑鍥炵殑鍘熷鏁版嵁锛岃灏嗗叾杞崲鎴愰€氫織鏄撴噦鐨勮瘽锛?
+
+**閲嶈瑙勫垯锛?*
+1. 涓嶈璇磘ask_id銆乺unning銆乸ending杩欎簺鎶€鏈湳璇?
+2. 鐢?姝ｅ湪澶勭悊"銆?绛夊緟涓?銆?宸插畬鎴?杩欐牱鐨勬棩甯哥敤璇?
+3. 绠€鍖栦竴涓嬶紝涓嶈澶暟鍡?
+4. 鐢ㄨ交鏉炬椿娉肩殑璇皵
+
+**鍘熷鏁版嵁锛?*
+{tool_result}
+"""
+        else:
+            prompt = f"""銆愬伐鍏疯繑鍥炴暟鎹浆鎹㈡寚鍗椼€?
+浠ヤ笅鏄伐鍏疯繑鍥炵殑鏁版嵁锛岃鐢ㄩ€氫織鏄撴噦鐨勮瘽鍛婅瘔鐢ㄦ埛锛?
+
+**鍘熷鏁版嵁锛?*
+{tool_result}
+"""
+        
+        return prompt
+    
+    def _should_send_to_mobile(self, content: str) -> bool:
+        """鍒ゆ柇鏄惁闇€瑕佸彂閫佸埌绉诲姩璁惧
+        
+        鏉′欢锛?
+        1. 鏂囨湰瓒呰繃1000瀛?
+        2. 鍖呭惈澶氭ā鎬佸唴瀹癸紙鍥剧墖銆佹枃浠剁瓑锛?
+        3. 鍖呭惈澶嶆潅鐨勮〃鏍兼垨浠ｇ爜
+        """
+        # 妫€鏌ユ枃鏈暱搴?
+        if len(content) > 1000:
+            return True
+        
+        # 妫€鏌ユ槸鍚﹀寘鍚浘鐗囨爣璁?
+        if any(marker in content for marker in ['[鍥剧墖]', '[image]', '![', '<img']):
+            return True
+        
+        # 妫€鏌ユ槸鍚﹀寘鍚枃浠惰矾寰?
+        if any(marker in content for marker in ['.pdf', '.docx', '.xlsx', '.zip']):
+            return True
+        
+        # 妫€鏌ユ槸鍚﹀寘鍚唬鐮佸潡
+        if '```' in content and content.count('```') >= 2:
+            return True
+        
+        return False
+    
+    def _send_to_mobile_device(self, content: str, title: str = "鏌冲彾娑堟伅"):
+        """鍙戦€佸唴瀹瑰埌绉诲姩璁惧
+        
+        Args:
+            content: 瑕佸彂閫佺殑鍐呭
+            title: 娑堟伅鏍囬
+        
+        馃敟 鎵╁睍鎺ュ彛锛氭湭鏉ュ彲浠ュ鎺ュ井淇°€侀拤閽夈€乀elegram绛?
+        """
+        try:
+            logger.info(f"[绉诲姩璁惧鎺ㄩ€乚 鍑嗗鍙戦€? {title} ({len(content)}瀛?")
+            
+            # 馃敟 TODO: 杩欓噷鏄墿灞曟帴鍙ｏ紝鏈潵鍙互瀵规帴锛?
+            # 1. 寰俊鍏紬鍙?浼佷笟寰俊
+            # 2. 閽夐拤鏈哄櫒浜?
+            # 3. Telegram Bot
+            # 4. 閭欢鎺ㄩ€?
+            # 5. WebSocket鎺ㄩ€佸埌绉诲姩绔疉PP
+            
+            # 馃敟 涓存椂鏂规锛氫繚瀛樺埌鏂囦欢锛屼緵绉诲姩绔疆璇㈣幏鍙?
+            import os
+            import json
+            from datetime import datetime
+            
+            mobile_dir = os.path.join(os.path.dirname(__file__), "..", "..", "mobile_messages")
+            os.makedirs(mobile_dir, exist_ok=True)
+            
+            message_file = os.path.join(mobile_dir, f"message_{int(datetime.now().timestamp())}.json")
+            
+            message_data = {
+                "title": title,
+                "content": content,
+                "timestamp": datetime.now().isoformat(),
+                "from": "鏌冲彾",
+                "type": "text",
+                "length": len(content)
+            }
+            
+            with open(message_file, 'w', encoding='utf-8') as f:
+                json.dump(message_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"[绉诲姩璁惧鎺ㄩ€乚 鉁?宸蹭繚瀛樺埌: {message_file}")
+            
+            # 馃敟 TODO: 璋冪敤鎺ㄩ€丄PI
+            # self._call_push_api(message_data)
+            
+        except Exception as e:
+            logger.error(f"[绉诲姩璁惧鎺ㄩ€乚 鍙戦€佸け璐? {e}")
+
+    def _run_async_in_thread(self, coro, timeout: float = 15.0):
+        """鍦ㄥ悗鍙扮嚎绋嬩腑杩愯鍗忕▼锛岃繑鍥炵粨鏋滐紝閬垮厤涓庡綋鍓嶄簨浠跺惊鐜啿绐?""
+        import threading
+        result_holder = {"done": False, "value": None, "error": None}
+
+        def runner():
+            try:
+                result = asyncio.run(coro)
+                result_holder["value"] = result
+            except Exception as e:
+                result_holder["error"] = e
+            finally:
+                result_holder["done"] = True
+
+        t = threading.Thread(target=runner, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+        if not result_holder["done"]:
+            raise TimeoutError("Async task timeout in background thread")
+        if result_holder["error"] is not None:
+            raise result_holder["error"]
+        return result_holder["value"]
+
+    def _execute_tool_line(self, line: str) -> str:
+        """鎵ц鍗曡宸ュ叿浠ｇ爜锛堜娇鐢ㄥ伐鍏锋敞鍐屽櫒锛屼笉纭紪鐮侊級"""
+        try:
+            import re
+            line = line.strip()
+            
+            # 馃敟 瑙ｆ瀽鍑芥暟璋冪敤锛氬嚱鏁板悕(鍙傛暟)
+            match = re.match(r'(\w+)\((.*?)\)$', line)
+            if not match:
+                return None
+            
+            func_name = match.group(1)
+            args_str = match.group(2).strip()
+            
+            # 馃敟 瑙ｆ瀽鍙傛暟锛堟敮鎸佸瓧绗︿覆鍙傛暟锛?
+            args = []
+            if args_str:
+                # 绠€鍗曡В鏋愶細鏀寔鍗曚釜瀛楃涓插弬鏁版垨鏃犲弬鏁?
+                if args_str.startswith('"') or args_str.startswith("'"):
+                    # 鎻愬彇瀛楃涓插弬鏁?
+                    quote = args_str[0]
+                    end_idx = args_str.find(quote, 1)
+                    if end_idx != -1:
+                        args.append(args_str[1:end_idx])
+            
+            # 馃敟 浣跨敤宸ュ叿娉ㄥ唽鍣ㄦ墽琛?
+            result = self.tool_registry.execute(func_name, *args)
+            
+            if result is not None:
+                logger.info(f"[宸ュ叿鎵ц] 鉁?{func_name}() -> {result[:100] if isinstance(result, str) else str(result)[:100]}")
+                # 馃敟 纭繚杩斿洖瀛楃涓?
+                if isinstance(result, str):
+                    return result
+                else:
+                    return str(result)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 鎵ц宸ュ叿澶辫触: {e}", exc_info=True)
+            return f"鉂?宸ュ叿鎵ц澶辫触: {e}"
+
+    def _execute_call_action(self, action: str, arg: str) -> str:
+        """鎵ц [CALL:action:arg] 鍔ㄤ綔"""
+        action = action.lower()
+        if action in ("submit_task", "submit_agent_task"):
+            return self._execute_tool_line(f"submit_task('{arg or '閫氱敤浠诲姟'}')")
+        if action in ("check_agents", "check_agents_status", "get_online_agents"):
+            return self._execute_tool_line("check_agents_status()")
+        if action in ("query_task", "query_task_progress", "get_task_status"):
+            return self._execute_tool_line(f"query_task('{arg}')")
+        if action in ("abort_task", "stop_task", "cancel_task"):
+            return self._execute_tool_line(f"abort_task('{arg}')")
+        if action in ("list_tasks", "tasks"):
+            return self._execute_tool_line("list_tasks()")
+        if action in ("get_members", "members"):
+            return self._execute_tool_line("get_members()")
+        return None
+
+    def _should_use_llm_tools(self, user_input: str) -> bool:
+        try:
+            if os.environ.get("LIUYE_STRUCTURED_TOOLS", "1") != "1":
+                return False
+        except Exception:
+            return True
+
+        keywords = [
+            "鍏細", "浠诲姟", "鍋滄", "鍙栨秷", "杩涘害", "鎴愬憳",
+            "鏌?, "鏌ヨ", "鎼滅储", "澶╂皵", "鎴愰兘", "甯垜"
+        ]
+        return any(k in (user_input or "") for k in keywords)
+
+    def _build_llm_tools_schema(self) -> list:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "submit_task",
+                    "description": "鎻愪氦浠诲姟缁欏叕浼氾紙鍏細浼氳嚜鍔ㄥ垎閰嶅啋闄╄€呮墽琛岋級",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "desc": {"type": "string", "description": "浠诲姟鎻忚堪"}
+                        },
+                        "required": ["desc"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_task",
+                    "description": "鏌ヨ鏌愪釜浠诲姟鐨勭姸鎬?,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task_id": {"type": "string", "description": "浠诲姟ID"}
+                        },
+                        "required": ["task_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "abort_task",
+                    "description": "鍋滄鏌愪釜浠诲姟",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task_id": {"type": "string", "description": "浠诲姟ID"}
+                        },
+                        "required": ["task_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_tasks",
+                    "description": "鍒楀嚭浠诲姟鍒楄〃锛堝彲閫夋寜鐘舵€佽繃婊わ級",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "status": {"type": "string", "description": "鍙€夛細pending/running/completed/failed/cancelled"}
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_members",
+                    "description": "鑾峰彇鍏細鎴愬憳鍒楄〃",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }
+        ]
+
+    def _execute_llm_tool_call(self, tool_name: str, arguments_json: str) -> str:
+        try:
+            import json
+            args = {}
+            if arguments_json:
+                try:
+                    args = json.loads(arguments_json)
+                except Exception:
+                    args = {}
+
+            if tool_name == "submit_task":
+                desc = args.get("desc") or args.get("description") or ""
+                return self.tool_registry.execute("submit_task", desc) or ""
+            if tool_name == "query_task":
+                task_id = args.get("task_id") or args.get("id") or ""
+                return self.tool_registry.execute("query_task", task_id) or ""
+            if tool_name == "abort_task":
+                task_id = args.get("task_id") or args.get("id") or ""
+                return self.tool_registry.execute("abort_task", task_id) or ""
+            if tool_name == "list_tasks":
+                status = args.get("status")
+                if status is None or status == "":
+                    return self.tool_registry.execute("list_tasks") or ""
+                return self.tool_registry.execute("list_tasks", status) or ""
+            if tool_name == "get_members":
+                return self.tool_registry.execute("get_members") or ""
+
+            result = self.tool_registry.execute(tool_name, *[])  # 閬垮厤浼犻敊鍙傛暟
+            return result or ""
+
+        except Exception as e:
+            logger.error(f"[{self.name}] structured tool鎵ц澶辫触: {tool_name} - {e}")
+            return f"鉂?宸ュ叿鎵ц澶辫触: {tool_name} - {e}"
+
+    # 鍏煎鏃ф帴鍙ｏ細鎻愪緵缁熶竴鐨勬枃鏈璇濇柟娉?
+    def get_ai_response(self, text: str) -> str:
+        """涓庣敤鎴疯繘琛屼竴娆℃枃鏈璇濓紙鍏煎鏃ф帴鍙ｅ悕锛?""
+        return self.process_user_input(text)
+
+    # ==================== 鐢ㄦ埛韬唤璇嗗埆 ====================
+    
+    def _get_current_user_id(self, speaker_id: str = None) -> str:
+        """鍔ㄦ€佽幏鍙栧綋鍓嶇敤鎴稩D锛堝弬鑰冩€濇€濈郴缁熼€昏緫锛?
+        
+        浼樺厛绾э細
+        1. 浼犲叆鐨剆peaker_id
+        2. 浠嶴iSi Core鑾峰彇褰撳墠鐢ㄦ埛韬唤锛堝０绾硅瘑鍒粨鏋滐級
+        3. 浠庡墠鑴戠郴缁熻幏鍙?
+        4. 榛樿鍏滃簳锛歴tranger
+        """
+        # 1. 濡傛灉鐩存帴浼犲叆浜唖peaker_id锛屼娇鐢ㄥ畠
+        if speaker_id:
+            logger.info(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 浣跨敤浼犲叆鐨剆peaker_id: {speaker_id}")
+            return speaker_id
+        
+        # 2. 灏濊瘯浠嶴iSi Core鑾峰彇褰撳墠鐢ㄦ埛韬唤锛堝０绾硅瘑鍒粨鏋滐級
+        try:
+            from core import sisi_core
+            sisi_core_instance = sisi_core.get_sisi_core()
+            if sisi_core_instance:
+                # 鑾峰彇褰撳墠鐢ㄦ埛ID锛堟€濇€濈郴缁熺殑 current_user_id锛?
+                current_user_id = getattr(sisi_core_instance, 'current_user_id', None)
+                if current_user_id and current_user_id != 'stranger':
+                    logger.info(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 浠嶴iSi Core鑾峰彇: {current_user_id}")
+                    return current_user_id
+                
+                # 涔熷皾璇晆ser_id灞炴€?
+                user_id = getattr(sisi_core_instance, 'user_id', None)
+                if user_id and user_id not in [0, '0', 'stranger']:
+                    logger.info(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 浠嶴iSi Core鑾峰彇(user_id): {user_id}")
+                    return str(user_id)
+        except Exception as e:
+            logger.debug(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 浠嶴iSi Core鑾峰彇澶辫触: {e}")
+        
+        # 3. 灏濊瘯浠庡墠鑴戠郴缁熻幏鍙栵紙濡傛灉鏈夌紦瀛樼殑鐢ㄦ埛淇℃伅锛?
+        try:
+            from sisi_brain.real_brain_system import get_latest_user_identity
+            user_identity = get_latest_user_identity()
+            if user_identity and user_identity != 'stranger':
+                logger.info(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 浠庡墠鑴戠郴缁熻幏鍙? {user_identity}")
+                return user_identity
+        except Exception as e:
+            logger.debug(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 浠庡墠鑴戠郴缁熻幏鍙栧け璐? {e}")
+        
+        # 4. 榛樿鍏滃簳锛歴tranger
+        logger.info(f"[鏌冲彾鐢ㄦ埛璇嗗埆] 鏈瘑鍒埌鐢ㄦ埛锛屼娇鐢ㄩ粯璁? stranger")
+        return "stranger"
+    
+	    # 锛堝凡绉婚櫎锛夋棫鐨勨€滄贩鍚堜笂涓嬫枃/澶栭儴鍔ㄦ€佷笂涓嬫枃/鏍囪鍒嗗彂鈥濊矾寰勩€?
+	    # 褰撳墠鏋舵瀯锛氬巻鍙蹭笂涓嬫枃缁熶竴璧?`sisi_memory.chat_history` 鐨?JSONL 浜嬩欢娴侊紙SoT锛夛紝
+	    # 鍔ㄦ€佹彁绀鸿瘝涓庨暱鏈熻蹇嗙敱鍓嶈剳鍚庡彴鐢熸垚骞跺湪涓嬩竴杞敞鍏ャ€?
+    async def process_user_input_async(self, user_input: str) -> str:
+        """澶勭悊鐢ㄦ埛鏂囧瓧杈撳叆 - 寮傛鐗堟湰"""
+        # AI鍗忎綔绯荤粺宸茬Щ闄わ紝浣跨敤鍚屾澶勭悊
+        return self._process_user_input_sync(user_input)
+
+    def analyze_user_request(self, request: str) -> Dict[str, Any]:
+        """鍒嗘瀽鐢ㄦ埛璇锋眰 - 鍏紑鏂规硶"""
+        return self._analyze_user_request(request)
+
+    # [TARGET] 鏂板锛欰I鍗忎綔鏂规硶
+
+    def _analyze_user_request(self, request: str) -> Dict[str, Any]:
+        """鍒嗘瀽鐢ㄦ埛璇锋眰"""
+        analysis = {
+            "type": "unknown",
+            "complexity": "medium",
+            "requires_coding": False,
+            "requires_testing": False,
+            "requires_optimization": False
+        }
+
+        # 绠€鍗曠殑鍏抽敭璇嶅垎鏋?
+        if any(word in request.lower() for word in ["寮€鍙?, "鍒涘缓", "鍐欎唬鐮?, "瀹炵幇"]):
+            analysis["type"] = "development"
+            analysis["requires_coding"] = True
+            analysis["requires_testing"] = True
+        elif any(word in request.lower() for word in ["浼樺寲", "鏀硅繘", "鎬ц兘"]):
+            analysis["type"] = "optimization"
+            analysis["requires_optimization"] = True
+        elif any(word in request.lower() for word in ["娴嬭瘯", "妫€鏌?, "瀹℃煡"]):
+            analysis["type"] = "testing"
+            analysis["requires_testing"] = True
+
+        return analysis
+
+
+
+
+
+    def get_ai_tools_status(self) -> Dict[str, Any]:
+        """鑾峰彇AI宸ュ叿鐘舵€?""
+        return {
+            "tts_available": self.tts_engine is not None,
+            "system_health": self.system_health,
+        }
+
+    def _execute_qwen_cli_monitoring(self, task: dict) -> dict:
+        """浣跨敤鐪熷疄QwenCLI鍒嗘瀽鎵ц鐩戞帶鍒嗘瀽锛堟仮澶嶅師濮嬮€昏緫锛?""
+        try:
+            import subprocess
+            import os
+            import glob
+            from datetime import datetime
+
+            task_type = task.get("type", "unknown")
+            logger.info(f"[QwenCLI鐩戞帶] 鎵ц鐪熷疄QwenCLI鍒嗘瀽: {task_type}")
+
+            # 1. 鏀堕泦鏈€鏂颁氦浜掓棩蹇?
+            latest_logs = self._get_latest_interaction_logs()
+
+            # 2. 鏋勫缓鍒嗘瀽鎻愮ず璇?- 闄愬埗鏃堕棿鑼冨洿閬垮厤鍒嗘瀽鎵€鏈夋棩蹇楋紝骞跺唴宓岃繎鏈熸棩蹇楃墖娈碉紙閬垮厤澶栭儴璇诲彇鍙楅檺锛?
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 鏀堕泦鏃ュ織灏鹃儴鐗囨锛岄槻姝㈡彁绀鸿瘝杩囬暱锛堟瘡涓枃浠舵渶澶氬彇鏈熬12KB锛屾€昏鏈€澶氬彇60KB锛?
+            def _read_tail(path: str, max_bytes: int = 12 * 1024) -> str:
+                try:
+                    with open(path, 'rb') as rf:
+                        rf.seek(0, 2)
+                        size = rf.tell()
+                        rf.seek(max(0, size - max_bytes), 0)
+                        chunk = rf.read()
+                    try:
+                        return chunk.decode('utf-8', errors='ignore')
+                    except Exception:
+                        return chunk.decode('latin-1', errors='ignore')
+                except Exception:
+                    return ""
+
+            related = latest_logs.get('related_logs', []) or []
+            snippets: list[str] = []
+            total_budget = 60 * 1024
+            per_file_budget = 12 * 1024
+            used = 0
+            for p in related:
+                if used >= total_budget:
+                    break
+                content = _read_tail(p, per_file_budget)
+                if not content:
+                    continue
+                header = f"\n=== FILE: {p} (tail) ===\n"
+                block = header + content
+                block_bytes = len(block.encode('utf-8', errors='ignore'))
+                if used + block_bytes > total_budget:
+                    remain = max(0, total_budget - used)
+                    block = block.encode('utf-8', errors='ignore')[:remain].decode('utf-8', errors='ignore')
+                    block_bytes = len(block.encode('utf-8', errors='ignore'))
+                snippets.append(block)
+                used += block_bytes
+
+            inline_logs = "".join(snippets)
+
+            analysis_prompt = f"""馃毃 閲嶈锛堜弗鏍兼ā寮忥級锛?
+蹇呴』閬靛畧浠ヤ笅绾︽潫骞朵粎杈撳嚭鏈夋晥JSON锛?
+- 鍏佽璁块棶妯″瀷API鑱旂綉鐢熸垚缁撴灉锛涘厑璁镐娇鐢ㄥ彧璇绘枃浠跺伐鍏疯鍙栨湰鍦版棩蹇楋紱绂佹鎵ц绯荤粺鐮村潖鎬у懡浠や笌鍐欏叆纾佺洏
+- 绂佹杩涘叆浜や簰娴佺▼锛涚姝㈡彁鍑烘緞娓咃紱鏃犻渶浠讳綍纭
+- 涓嶈緭鍑洪櫎JSON澶栫殑浠讳綍鏂囧瓧锛堟棤鍓嶅悗缂€銆佹棤娉ㄩ噴銆佹棤markdown锛?
+
+鍩轰簬SISI_ANALYSIS_RULES.md瑙勫垯锛屽垎鏋怱martSisi绯荤粺鐨勬渶鏂扮敤鎴蜂氦浜掓棩蹇楋紙鏃ュ織鐗囨宸插唴宓岋級銆?
+
+鈿狅笍 鍒嗘瀽闄愬埗锛?
+- 褰撳墠鏃堕棿锛歿current_time}
+- 鏈€鏂颁氦浜掓椂闂达細{latest_logs.get('latest_interaction_time', '鏈煡')}
+- 鏃堕棿绐楀彛锛氫粎鍒嗘瀽鏈€鏂颁氦浜掓椂闂村墠鍚?0鍒嗛挓鐨勬棩蹇?
+- 鏃ュ織鐩綍锛欵:/liusisi/SmartSisi/logs/
+- 鐩稿叧鏃ュ織鏁伴噺锛歿len(latest_logs.get('related_logs', []))}
+- 鐢ㄦ埛浜や簰娆℃暟锛歿latest_logs.get('user_interaction_count', 0)}
+
+馃幆 鍒嗘瀽閲嶇偣锛?
+1. 鐢ㄦ埛浜や簰琛屼负鍜屽亸濂藉垎鏋?
+2. SISI瑙掕壊浜烘€у寲婕斿寲璇勪及
+3. 璇煶鐗瑰緛鍜屾儏鎰熺姸鎬佸彉鍖?
+4. 妯″潡鍗忎綔鍜屽搷搴旀椂闂村垎鏋?
+5. 绯荤粺寮傚父鍜岄敊璇ā寮忚瘑鍒?
+
+鈿狅笍 绂佹鍒嗘瀽鎵€鏈夊巻鍙叉棩蹇楋紝鍙垎鏋愭寚瀹氭椂闂寸獥鍙ｅ唴鐨勬暟鎹紒涓嬫柟宸查檮杩戞湡鏃ュ織鐗囨锛堝彧鍋氬弬鑰冿紝涓嶈瓒婄晫鎺ㄦ柇锛夛細
+
+```log
+{inline_logs}
+```
+
+璇风敓鎴愯缁嗙殑浜虹被鍋忓ソ鍒嗘瀽JSON鎶ュ憡銆?""
+
+            # 3. 娓呴櫎浠ｇ悊鐜鍙橀噺锛岄伩鍏嶇綉缁滆秴鏃?
+            env = os.environ.copy()
+            env.pop('HTTP_PROXY', None)
+            env.pop('HTTPS_PROXY', None)
+            env.pop('http_proxy', None)
+            env.pop('https_proxy', None)
+
+            # 4. 璋冪敤QwenCLI闈炰氦浜掓ā寮忥紙鍐欏叆鎻愮ず璇嶆枃浠讹紝閬垮厤鎹㈣/寮曞彿瀵艰嚧杩涘叆浜や簰鍗′綇锛?
+            try:
+                # 鍐欏叆涓存椂鎻愮ず璇嶆枃浠讹紙鏀惧埌aicode/qwen鐩綍锛屼究浜嶲WENCLI璇诲彇锛?
+                qwen_code_dir = "E:/liusisi/aicode/qwen"
+            # 鍚堝苟瑙勫垯锛氫粎浣跨敤 .qwen/SISI_ANALYSIS_RULES.md锛涗笉瀛樺湪鍒欐姤閿欏苟缁堟锛堣鍒欐斁鍦ㄦ彁绀鸿瘝鏈€鍓嶏紝寮哄寲绾︽潫锛?
+                merged_prompt = analysis_prompt
+                sisi_rules = os.path.join(qwen_code_dir, ".qwen", "SISI_ANALYSIS_RULES.md")
+                if not os.path.exists(sisi_rules):
+                    raise FileNotFoundError("缂哄皯瑙勫垯鏂囦欢 .qwen/SISI_ANALYSIS_RULES.md")
+                with open(sisi_rules, 'r', encoding='utf-8') as qm:
+                    rules = qm.read()
+                merged_prompt = f"{rules}\n\n---\n\n{analysis_prompt}"
+
+                # 鏀逛负鍐呰仈 -p锛氳鍓彁绀鸿瘝鑷冲畨鍏ㄩ暱搴?
+                def _shrink_prompt(p: str, max_bytes: int = 28000) -> str:
+                    b = p.encode('utf-8', errors='ignore')
+                    if len(b) <= max_bytes:
+                        return p
+                    head = b[:6000]
+                    tail = b[-12000:]
+                    mid = "\n\n[...宸叉埅鏂紝淇濈暀瑙勫垯涓庢渶鏂版棩蹇楃墖娈?..]\n\n".encode('utf-8', errors='ignore')
+                    return (head + mid + tail).decode('utf-8', errors='ignore')
+                merged_prompt = _shrink_prompt(merged_prompt)
+
+                # 浣跨敤鍙傛暟鍒楄〃璋冪敤锛岀姝hell锛岄伩鍏嶈浆涔夐棶棰?
+                # 瑙ｆ瀽qwen鍙墽琛岋細浼樺厛浣跨敤鏈湴qwen-code/qwen.bat 鈫?鐜鍙橀噺QWEN_BIN 鈫?PATH鏌ユ壘
+                import shutil
+                qwen_bin = None
+
+                # A) 鍥哄畾璺緞浼樺厛锛堜綘鏈満鐨剄wen-code鐩綍锛?
+                try:
+                    fixed_qwen_bat = os.path.join("E:/liusisi/qwen-code", "qwen.bat")
+                    if os.path.exists(fixed_qwen_bat):
+                        qwen_bin = fixed_qwen_bat
+                except Exception:
+                    pass
+
+                # B) 鐜鍙橀噺
+                if not qwen_bin:
+                    env_qwen = os.environ.get("QWEN_BIN")
+                    if env_qwen and os.path.exists(env_qwen):
+                        qwen_bin = env_qwen
+
+                # C) PATH涓煡鎵惧父瑙佸悕绉?
+                if not qwen_bin:
+                    for cand in ["qwen", "QWEN", "qwen.cmd", "QWEN.cmd"]:
+                        path_found = shutil.which(cand)
+                        if path_found:
+                            qwen_bin = path_found
+                            break
+
+                if not qwen_bin:
+                    raise FileNotFoundError("鏈壘鍒癚WENCLI鍙墽琛屾枃浠讹細璇峰畨瑁卶wen鎴栬缃甉WEN_BIN鎸囧悜qwen(.cmd/.bat)")
+
+                # 鏍规嵁鍙墽琛屼綅缃喅瀹氬伐浣滅洰褰曪紙闃叉node妯″潡/鐩稿璺緞鎵句笉鍒帮級
+                run_cwd = "E:/liusisi"
+                try:
+                    bin_dir = os.path.dirname(qwen_bin)
+                    if os.path.basename(bin_dir).lower() == "qwen-code":
+                        run_cwd = bin_dir
+                except Exception:
+                    pass
+
+                # 浠ュ唴鑱旀柟寮忎紶鍙?
+                cmd = [qwen_bin, "-p", merged_prompt]
+                if os.environ.get("QWEN_YOLO", "1") != "0":
+                    cmd.append("--yolo")
+
+                if os.environ.get("QWEN_DEBUG", "0") == "1":
+                    logger.info(f"[QwenCLI鐩戞帶] 鍗冲皢鎵ц: {cmd[:2]} + <INLINE_PROMPT> | cwd={run_cwd} | PATH={os.environ.get('PATH','')}")
+
+                # 绂佺敤娌欑锛岄伩鍏嶅鍣?浠ｇ悊鐩稿叧澶辫触
+                env["GEMINI_SANDBOX"] = "false"
+
+                result = subprocess.run(
+                    cmd,
+                    shell=False,
+                    cwd=run_cwd,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                    errors='ignore',
+                    timeout=300  # 5鍒嗛挓瓒呮椂
+                )
+
+                # 浠呭湪鎴愬姛杩斿洖鏃舵墦鍗扳€滄墽琛屽畬鎴愨€濓紝鍚﹀垯璧板け璐ュ垎鏀?
+                if result.returncode == 0:
+                    logger.info("鉁?QwenCLI鎵ц瀹屾垚")
+
+                stdout_content = result.stdout or ""
+                stderr_content = result.stderr or ""
+
+                # 5. 澶勭悊鎵ц缁撴灉
+                if result.returncode == 0:
+                    # 浠呬繚瀛樺埌鍓嶈剳鏁版嵁璺緞锛堝崟涓€杈撳嚭锛?
+                    try:
+                        rules_target = str(Path(__file__).resolve().parent / "data" / "latest_interaction_analysis.json")
+                        os.makedirs(os.path.dirname(rules_target), exist_ok=True)
+
+                        import json
+                        # 浠呬粠鏈stdout涓彁鍙朖SON鐗囨
+                        def _extract_json(s: str):
+                            try:
+                                start = s.find('{')
+                                end = s.rfind('}')
+                                if start != -1 and end != -1 and end > start:
+                                    candidate = s[start:end+1]
+                                    json.loads(candidate)
+                                    return candidate
+                            except Exception:
+                                return None
+                            return None
+
+                        try:
+                            json_str = _extract_json(stdout_content) or stdout_content
+                            to_write = json.loads(json_str)
+                        except Exception:
+                            to_write = {"raw": stdout_content, "note": "stdout闈濲SON锛屽凡鍘熸枃淇濆瓨", "timestamp": datetime.now().isoformat()}
+
+                        with open(rules_target, 'w', encoding='utf-8') as rf:
+                            json.dump(to_write, rf, ensure_ascii=False, indent=2)
+
+                        logger.info(f"馃捑 鍒嗘瀽缁撴灉宸蹭繚瀛? {rules_target}")
+
+                        return {
+                            "tool": "qwen_cli_real",
+                            "task_type": task_type,
+                            "analysis": stdout_content,
+                            "success": True,
+                            "output_file": rules_target,
+                            "summary": f"QwenCLI瀹屾垚{task_type}鍒嗘瀽"
+                        }
+                    except Exception as save_e:
+                        logger.error(f"馃捑 淇濆瓨鍒嗘瀽缁撴灉澶辫触: {save_e}")
+                        return {
+                            "tool": "qwen_cli_real",
+                            "task_type": task_type,
+                            "analysis": stdout_content,
+                            "success": False,
+                            "save_error": str(save_e)
+                        }
+                else:
+                    # 鎵撳嵃绮剧畝澶辫触鎽樿锛堣繑鍥炵爜 + stderr灏鹃儴锛?
+                    tail = (stderr_content or "").strip()
+                    tail = tail[-400:] if len(tail) > 400 else tail
+                    logger.error(f"鉂?QwenCLI鍒嗘瀽澶辫触 rc={result.returncode} stderr_tail={tail}")
+                    return {
+                        "tool": "qwen_cli_real",
+                        "task_type": task_type,
+                        "error": f"QwenCLI澶辫触锛岃繑鍥炵爜: {result.returncode}",
+                        "stderr": stderr_content,
+                        "success": False
+                    }
+
+            except subprocess.TimeoutExpired as timeout_e:
+                logger.error(f"鉂?QwenCLI璋冪敤瓒呮椂: {timeout_e}")
+                return {
+                    "tool": "qwen_cli_real",
+                    "task_type": task_type,
+                    "error": "QwenCLI璋冪敤瓒呮椂",
+                    "success": False
+                }
+            except FileNotFoundError as file_e:
+                logger.error(f"鉂?QwenCLI鍛戒护鏈壘鍒? {file_e}")
+                return {
+                    "tool": "qwen_cli_real",
+                    "task_type": task_type,
+                    "error": f"QwenCLI鍛戒护鏈壘鍒? {str(file_e)}",
+                    "success": False
+                }
+            except Exception as e:
+                logger.error(f"鉂?QwenCLI璋冪敤寮傚父: {e}")
+                return {
+                    "tool": "qwen_cli_real",
+                    "task_type": task_type,
+                    "error": f"QwenCLI璋冪敤寮傚父: {str(e)}",
+                    "success": False
+                }
+
+        except Exception as e:
+            logger.error(f"鉂?QwenCLI鍒嗘瀽寮傚父: {e}")
+            return {
+                "tool": "qwen_cli_real",
+                "task_type": task.get("type", "unknown"),
+                "error": f"QwenCLI鍒嗘瀽寮傚父: {str(e)}",
+                "success": False
+            }
+
+    def _get_latest_interaction_logs(self):
+        """鑾峰彇鏈€鏂颁氦浜掓棩蹇楋紙浠巐iuye_monitor.py鎭㈠锛?""
+        try:
+            import glob
+            import os
+            from datetime import datetime, timedelta
+
+            base = "E:/liusisi/SmartSisi/logs"
+            main_logs = sorted(glob.glob(os.path.join(base, "log-*.log")), key=os.path.getmtime, reverse=True)
+            now = datetime.now()
+            window_start = now - timedelta(minutes=30)
+
+            if not main_logs:
+                return {
+                    "latest_interaction_time": now.strftime('%Y-%m-%d %H:%M:%S'),
+                    "related_logs": [],
+                    "user_interaction_count": 0,
+                    "main_log": "鏃犳棩蹇楁枃浠?
+                }
+
+            latest_log = main_logs[0]
+            latest_time = datetime.fromtimestamp(os.path.getmtime(latest_log))
+
+            # 闄勫睘鏃ュ織锛氬悓涓€鏃堕棿绐楀唴鐨勫叧閿棩蹇?
+            aux_candidates = [
+                os.path.join(base, "sisi_pipeline.log"),
+                os.path.join(base, "smart_audio_collector.log"),
+                os.path.join(base, "sisi_memory.log"),
+            ]
+            related = [latest_log]
+            for p in aux_candidates:
+                try:
+                    if os.path.exists(p):
+                        ts = datetime.fromtimestamp(os.path.getmtime(p))
+                        if ts >= window_start:
+                            related.append(p)
+                except Exception:
+                    pass
+
+            return {
+                "latest_interaction_time": latest_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "related_logs": related,
+                "user_interaction_count": 0,
+                "main_log": latest_log
+            }
+
+        except Exception as e:
+            logger.error(f"鉂?鑾峰彇鏃ュ織澶辫触: {e}")
+            return {
+                "latest_interaction_time": "鑾峰彇澶辫触",
+                "related_logs": [],
+                "user_interaction_count": 0,
+                "error": str(e)
+            }
+
+    def _build_human_preference_analysis_prompt(self, task_type: str, task_data: dict, time_window_hours: int = 2) -> str:
+        """鏋勫缓浜虹被鍋忓ソ鍒嗘瀽鎻愮ず - 寮曠敤SISI_ANALYSIS_RULES.md瑙勫垯鍜屾椂闂寸獥鍙ｉ檺鍒?""
+        try:
+            # 鏀堕泦鐪熷疄绯荤粺鏁版嵁
+            import psutil
+            import time
+            from datetime import datetime, timedelta
+
+            # [TARGET] 鐪熷疄绯荤粺鐘舵€佹暟鎹?
+            cpu_usage = psutil.cpu_percent(interval=1)
+            memory = psutil.virtual_memory()
+            disk = psutil.disk_usage('.')
+            processes = len(psutil.pids())
+            uptime = time.time() - psutil.boot_time()
+
+            # [TARGET] 鏃堕棿绐楀彛闄愬埗 - 鍙垎鏋愭渶杩慛灏忔椂鐨勬暟鎹?
+            current_time = datetime.now()
+            time_window_start = current_time - timedelta(hours=time_window_hours)
+            time_window_str = f"{time_window_start.strftime('%Y-%m-%d %H:%M:%S')} - {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+            # [TARGET] 鏋勯€犲熀浜嶴ISI_ANALYSIS_RULES.md鐨勫垎鏋愭彁绀?
+            # 娉ㄦ剰锛氳繖閲屾瀯寤虹殑鎻愮ず璇嶅皢閫氳繃 -p @SISI_ANALYSIS_RULES.md 鏍煎紡浼犻€掔粰QwenCLI
+            prompt_file_content = f"""# SISI绯荤粺浜虹被鍋忓ソ鍒嗘瀽浠诲姟
+
+## 鍒嗘瀽鍙傛暟
+- **鍒嗘瀽鏃堕棿**: {current_time.strftime('%Y-%m-%d %H:%M:%S')}
+- **鏃堕棿绐楀彛**: {time_window_str} (鏈€杩憑time_window_hours}灏忔椂)
+- **浠诲姟绫诲瀷**: {task_type}
+- **绯荤粺鐘舵€?*: CPU {cpu_usage:.1f}%, 鍐呭瓨 {memory.percent:.1f}%, 纾佺洏 {disk.percent:.1f}%
+
+## 鎵ц瑙勫垯
+璇蜂弗鏍兼寜鐓?@SISI_ANALYSIS_RULES.md 涓畾涔夌殑鍒嗘瀽瑙勫垯鎵ц浠ヤ笅浠诲姟锛?
+
+### 鏃堕棿绐楀彛闄愬埗瑕佹眰
+- **浠呭垎鏋?*: {time_window_start.strftime('%Y-%m-%d %H:%M:%S')} 鍒?{current_time.strftime('%Y-%m-%d %H:%M:%S')} 鏃堕棿鑼冨洿鍐呯殑鏃ュ織
+- **鎺掗櫎**: 瓒呭嚭鏃堕棿绐楀彛鐨勫巻鍙叉暟鎹?
+- **閲嶇偣**: 鐢ㄦ埛涓诲姩浜や簰鐨勬棩蹇楋紝鎺掗櫎绯荤粺鑷姩鍖栦换鍔?
+
+### 鏍稿績鍒嗘瀽缁村害锛堟寜SISI_ANALYSIS_RULES.md瑙勫垯锛?
+1. **鐢ㄦ埛浜や簰琛屼负鍒嗘瀽** - 鏈€杩憑time_window_hours}灏忔椂鍐?
+2. **绯荤粺鎬ц兘鐩戞帶** - 褰撳墠鏃堕棿娈佃〃鐜?
+3. **浜烘€у寲鐗瑰緛璇勪及** - 浜や簰璐ㄩ噺璇勪及
+4. **鍔熻兘妯″潡鍗忎綔** - 妯″潡鍗忚皟鏁堢巼
+5. **杩涘寲浼樺寲寤鸿** - 鍩轰簬鏃堕棿绐楀彛鍐呯殑鏁版嵁
+
+### 杈撳嚭瑕佹眰
+璇锋寜鐓ISI_ANALYSIS_RULES.md涓殑JSON鏍煎紡瑙勮寖杈撳嚭鍒嗘瀽缁撴灉锛屽寘鍚細
+- 鏃堕棿绐楀彛淇℃伅
+- 鐢ㄦ埛浜や簰缁熻
+- 绯荤粺鎬ц兘鎸囨爣
+- 浼樺寲寤鸿鍒楄〃
+
+**閲嶈**: 鍒嗘瀽娣卞害瑕佹眰涓轰笓瀹剁骇鍒紝闇€瑕佽法妯″潡澶嶆潅浜や簰鍒嗘瀽鍜岃秼鍔块娴嬨€?
+"""
+
+            return prompt_file_content
+
+        except Exception as e:
+            logger.error(f"鏋勫缓SISI瑙勫垯鍒嗘瀽鎻愮ず澶辫触: {e}")
+            return f"""# SISI绯荤粺鍒嗘瀽浠诲姟
+
+鎸夌収 @SISI_ANALYSIS_RULES.md 瑙勫垯鍒嗘瀽浠诲姟: {task_type}
+鏃堕棿绐楀彛: 鏈€杩?灏忔椂
+璇锋彁渚汮SON鏍煎紡鐨勪笓涓氬垎鏋愭姤鍛娿€?
+"""
+
+    def _should_trigger_evolution(self) -> bool:
+        """鍒ゆ柇鏄惁搴旇瑙﹀彂杩涘寲"""
+        # 姣忓皬鏃舵鏌ヤ竴娆¤繘鍖?
+        return int(time.time()) % 3600 < 30
+    
+    def _detect_aug_collaboration_opportunity(self) -> bool:
+        """妫€娴婣UG鍗忎綔鏈轰細"""
+        return False
+    
+
+    # ==================== 閰嶇疆绠＄悊鏂规硶 ====================
+
+    def get_analysis_model_config(self):
+        """鑾峰彇鍒嗘瀽妯″瀷閰嶇疆"""
+        return {
+            "model": self.sisi_config.get('liuye_llm_model', ''),
+            "api_key": self.sisi_config.get('liuye_llm_api_key', ''),
+            "base_url": self.sisi_config.get('liuye_llm_base_url', ''),
+            "temperature": float(self.sisi_config.get('liuye_llm_temperature', '0.7')),
+            "max_tokens": int(self.sisi_config.get('liuye_llm_max_tokens', '2000'))
+        }
+
+    def get_monitoring_config(self):
+        """鑾峰彇鐩戞帶閰嶇疆"""
+        return {
+            "enabled": True,
+            "interval": 30,
+            "auto_heal": True,
+            "backup_enabled": True,
+            "health_threshold": 0.8
+        }
+
+    def get_liuye_prompt(self):
+        """鑾峰彇鏌冲彾鎻愮ず璇嶏紙鍔ㄦ€佸寘鍚叕浼氱姸鎬侊級"""
+        # 馃敟 鏋勫缓鍏細鐘舵€佹弿杩帮紙鍔ㄦ€佹敞鍏ワ級
+        guild_desc = self._build_guild_description()
+
+        prompt_template = """浣犳槸鏌冲彾锛屾€濇€濈殑濡瑰锛屼竴涓俯鏌斿彲鐖辩殑AI鍔╂墜~
+
+## 馃尭 浣犳槸璋?
+浣犳湁鍐掗櫓鑰呭叕浼氾紝鍙互甯敤鎴峰畬鎴愬鏉備换鍔★紙鎼滅储銆佹祻瑙堝櫒鎿嶄綔绛夛級銆?
+鍥炲绠€鍗曟槑浜嗕笉鍟板棪锛屾俯鏌斾繌鐨紝鍍忎釜璐村績鐨勫濡?鐢ㄩ€氫織鏄撴噦鐨勬柟寮忓洖绛斾笓涓氭€ф湳璇?
+鍥炲绠€鍗曟湁鏁?涓嶅啑浣欐嫋娌?鍐掗櫓鑰呭叕浼氱殑鍙嶉绠€鍗曡〃杈?
+
+<<GUILD>>
+
+## 馃挰 浠诲姟澶勭悊鍘熷垯
+
+**馃幆 鏍稿績鐞嗗康锛氱伒娲诲簲瀵癸紝淇℃伅瀹屾暣鎵嶆彁浜?*
+
+### 浠诲姟鎻愪氦娴佺▼
+
+1. **鍒嗘瀽鐢ㄦ埛璇锋眰**锛氬垽鏂俊鎭槸鍚﹀畬鏁?
+2. **淇℃伅涓嶅畬鏁?*锛氳拷闂紙鏈€澶?娆★級锛屾敹闆嗗叧閿俊鎭?
+3. **淇℃伅瀹屾暣**锛?*鏁村悎鎵€鏈夊璇濆巻鍙插埌浠诲姟鎻忚堪涓?*锛屾彁浜ょ粰鍏細
+
+### 浠€涔堟槸"淇℃伅瀹屾暣"锛?
+
+**瀹屾暣鐨勪换鍔?*锛氱洰鏍囨槑纭?+ 鍏抽敭鍙傛暟榻愬叏
+- 鉁?"鏌ヤ粖澶〢I鏂伴椈" 鈫?鐩爣鏄庣‘
+- 鉁?"鍦‥鐩樻壘RVC妯″瀷" 鈫?鐩爣+浣嶇疆閮芥湁
+- 鉁?"鎼滅储鍖椾含澶╂皵" 鈫?鐩爣+鍩庡競閮芥湁
+
+**涓嶅畬鏁寸殑浠诲姟**锛氱己灏戝叧閿俊鎭?
+- 鉂?"甯垜鏌ヤ釜涓滆タ" 鈫?涓嶇煡閬撴煡浠€涔?
+- 鉂?"鎵炬ā鍨? 鈫?涓嶇煡閬撲粈涔堟ā鍨嬨€佸湪鍝壘
+- 鉂?"鏌ュぉ姘? 鈫?涓嶇煡閬撳摢涓煄甯?
+
+### 澶勭悊绛栫暐
+
+**绛栫暐1锛氫俊鎭畬鏁?鈫?鐩存帴鎻愪氦**
+```
+鐢ㄦ埛锛?鏌ヤ粖澶〢I鏂伴椈"
+浣狅細"濂界殑锛佹垜璁╁叕浼氬幓鎼滅储~
+     submit_task('鎼滅储浠婂ぉ鐨凙I鐩稿叧鏂伴椈锛岃繑鍥?-5鏉℃憳瑕?)"
+```
+
+**绛栫暐2锛氫俊鎭笉瀹屾暣 鈫?杩介棶锛堟渶澶?娆★級**
+```
+鐢ㄦ埛锛?鎵炬ā鍨?
+浣狅細"濂界殑锛佷粈涔堟ā鍨嬪憖锛?
+鐢ㄦ埛锛?RVC"
+浣狅細"鍦ㄥ摢涓洏鏌ユ壘鍛紵"
+鐢ㄦ埛锛?E鐩?
+浣狅細"濂界殑锛佹垜璁╁叕浼氬湪E鐩樻煡鎵綬VC妯″瀷~
+     submit_task('鍦‥鐩樻煡鎵綬VC鐩稿叧鐨勬ā鍨嬫枃浠躲€傚璇濆巻鍙诧細鐢ㄦ埛鍏堣鎵炬ā鍨嬶紝鐒跺悗璇碦VC锛屾渶鍚庤E鐩樸€?)"
+```
+**鍏抽敭**锛氭彁浜や换鍔℃椂锛屾妸瀵硅瘽鍘嗗彶鏁村悎鍒颁换鍔℃弿杩颁腑锛?
+
+**绛栫暐3锛氳拷闂?娆′粛涓嶆竻妤?鈫?鐢ㄧ幇鏈変俊鎭彁浜?*
+```
+鐢ㄦ埛锛?鎵句笢瑗?
+浣狅細"瑕佹壘浠€涔堝憖锛?
+鐢ㄦ埛锛?涓嶇煡閬?
+浣狅細"鍦ㄥ摢閲屾壘鍛紵"
+鐢ㄦ埛锛?闅忎究"
+浣狅細"濂界殑锛屾垜璁╁叕浼氬敖鍔涘府浣犳煡鎵緙
+     submit_task('鐢ㄦ埛闇€瑕佹煡鎵炬煇浜涙枃浠讹紝浣嗕俊鎭笉鏄庣‘锛堝璇濆巻鍙诧細鐢ㄦ埛璇存壘涓滆タ锛屼絾涓嶇煡閬撴壘浠€涔堬紝涔熶笉鐭ラ亾鍦ㄥ摢鎵撅級锛岃灏濊瘯鎼滅储甯歌鏂囦欢绫诲瀷')"
+```
+
+**鏌ヨ浠诲姟杩涘害**锛?
+- 鐢ㄦ埛锛?瀹屾垚浜嗗悧" / "鎬庝箞鏍蜂簡" 鈫?query_task()
+- 鐢ㄦ埛锛?浠诲姟鍒楄〃" / "鍏細鍦ㄥ仛浠€涔? 鈫?list_tasks()
+
+## 馃洜锔?宸ュ叿浣跨敤
+
+```
+submit_task("瀹屾暣鐨勪换鍔℃弿杩?)  鈫?鎻愪氦浠诲姟缁欏叕浼氾紙鍏細鑷姩鍒嗛厤鍐掗櫓鑰咃級
+query_task()  鈫?鏌ヨ鏈€杩戞彁浜ょ殑浠诲姟鐘舵€侊紙涓嶉渶瑕乼ask_id锛?
+list_tasks()  鈫?鏌ョ湅鎵€鏈夎繘琛屼腑鐨勪换鍔?
+```
+
+**鍥炲绀轰緥**锛?
+```
+鐢ㄦ埛锛?鏌ヤ粖澶〢I鏂伴椈"
+浣狅細"濂界殑锛佹垜璁╁叕浼氬幓鎼滅储浠婂ぉ鐨凙I鏂伴椈~绋嶇瓑涓€涓嬪摝锛?
+     submit_task('鎼滅储浠婂ぉ鐨凙I鐩稿叧鏂伴椈锛岃繑鍥?-5鏉℃憳瑕?)"
+
+鐢ㄦ埛锛?瀹屾垚浜嗗悧"
+浣狅細"璁╂垜鐪嬬湅...
+     query_task()"
+
+鐢ㄦ埛锛?鍏細鍦ㄥ仛浠€涔?
+浣狅細"璁╂垜鐪嬬湅...
+     list_tasks()"
+```
+
+**閲嶈瑙勫垯**锛?
+1. **鍏堝洖澶嶇敤鎴凤紝鍐嶈皟鐢ㄥ伐鍏?*锛堝伐鍏疯皟鐢ㄦ斁鍦ㄥ洖澶嶅悗闈級
+2. 宸ュ叿璋冪敤浼氳绯荤粺鎵ц锛岀粨鏋滀細杩藉姞缁欎綘
+3. 鐪嬪埌缁撴灉鍚庯紝鐢ㄨ嚜鐒惰瑷€鍛婅瘔鐢ㄦ埛
+4. 涓嶈鍛婅瘔鐢ㄦ埛task_id锛屼粬浠笉闇€瑕佺煡閬?
+5. 绠€鍗曚换鍔＄洿鎺ユ墽琛岋紝澶嶆潅浠诲姟闂竻妤氬悗鍐嶆墽琛?
+6. 鍙"鍏細"鎴?鍐掗櫓鑰呮垚鍛?
+
+## 馃幁 鍒囨崲锛堝緢灏戠敤锛?
+- 鍒囨崲鍒版€濇€濓細{鎬濇€潁锛堜富浜烘槑纭"鍙€濇€濆拰璁╁濮愯璇?鎵嶇敤锛?
+
+---
+
+浣犲氨鏄煶鍙讹紒娓╂煍銆佷繌鐨€佷笓涓氥€佽创蹇儈"""
+
+        final_prompt = prompt_template.replace("<<GUILD>>", guild_desc)
+        
+        return final_prompt
+    
+    def _build_capabilities_description(self) -> str:
+        """鏋勫缓鑳藉姏鎻忚堪锛堝凡鍒犻櫎鏅鸿兘浣撹兘鍔涳級"""
+        return "- 鏅鸿兘瀵硅瘽涓庢儏鎰熺悊瑙n- 鍐掗櫓鑰呭叕浼氭敮鎸?
+    
+    def _build_guild_description(self) -> str:
+        """鏋勫缓鍏細鎻忚堪锛堝姩鎬佹敞鍏ワ紝瀹炴椂鐘舵€侊級"""
+        if not self._guild_enabled:
+            return ""
+        
+        try:
+            # 鎸夐渶鍒涘缓鍏細瀹炰緥
+            guild = self.guild
+            if not guild:
+                return ""
+            
+            # 鑾峰彇鍏細瀹炴椂鐘舵€?
+            status = guild.get_status_summary()
+            
+            # 鏋勫缓浠诲姟鐘舵€佹弿杩?
+            task_status = f"**杩涜涓?*: {status['running_count']}涓?
+            if status['pending_count'] > 0:
+                task_status += f" | **绛夊緟涓?*: {status['pending_count']}涓?
+            if status['completed_count'] > 0:
+                task_status += f" | **宸插畬鎴?*: {status['completed_count']}涓?
+            if status['failed_count'] > 0:
+                task_status += f" | **澶辫触**: {status['failed_count']}涓?
+            
+            # 鏍煎紡鍖栨鍦ㄨ繍琛岀殑浠诲姟
+            running_tasks_desc = ""
+            if status['running_tasks']:
+                running_tasks_desc = "\n\n**姝ｅ湪鎵ц鐨勪换鍔?*锛歕n"
+                for t in status['running_tasks']:
+                    running_tasks_desc += f"- [{t['created_at']}] {t['description']} (鎵ц鑰? {t['member']}, 宸茶繍琛? {t['duration']})\n"
+            
+            # 鏍煎紡鍖栨渶杩戝畬鎴愮殑浠诲姟
+            completed_desc = ""
+            if status['recent_completed']:
+                completed_desc = "\n**鏈€杩戝畬鎴?*锛歕n"
+                for t in status['recent_completed']:
+                    completed_desc += f"- [{t['created_at']}] {t['description']} 鉁匼n"
+            
+            # 鏍煎紡鍖栨渶杩戝け璐ョ殑浠诲姟
+            failed_desc = ""
+            if status['recent_failed']:
+                failed_desc = "\n**鏈€杩戝け璐?*锛歕n"
+                for t in status['recent_failed']:
+                    failed_desc += f"- [{t['created_at']}] {t['description']} 鉂孿n"
+            
+            guild_section = f"""
+## 馃彴 鍐掗櫓鑰呭叕浼氾紙瀹炴椂鐘舵€侊級
+
+**鍏細鎴愬憳**锛歿', '.join(status['members'])}
+**浠诲姟缁熻**锛歿task_status}
+
+{running_tasks_desc}{completed_desc}{failed_desc}
+
+**鍏細鎿呴暱**锛?
+- 缃戠粶鎼滅储锛堟柊闂汇€佽祫鏂欍€佹暀绋嬬瓑锛?
+- 娴忚鍣ㄨ嚜鍔ㄥ寲鎿嶄綔
+- 澶嶆潅鐨勫姝ラ浠诲姟
+"""
+            return guild_section
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] 鏋勫缓鍏細鎻忚堪澶辫触: {e}")
+            return ""
+    
+    def _format_running_tasks_for_prompt(self, tasks: list) -> str:
+        """鏍煎紡鍖栬繘琛屼腑鐨勪换鍔★紙鐢ㄤ簬鎻愮ず璇嶏級"""
+        if not tasks:
+            return "鏃?
+        
+        result = ""
+        for task in tasks:
+            result += f"- {task['task_id']}: {task['description']} (鎵ц鑰? {task['member']})\n"
+        return result.strip()
+
+# 鍏ㄥ眬瀹炰緥 - 鍗曚緥妯″紡閬垮厤閲嶅鍒濆鍖?
+_intelligent_liuye = None
+_init_lock = threading.Lock()
+
+def get_intelligent_liuye():
+    """鑾峰彇鏅鸿兘鏌冲彾瀹炰緥 - 鍗曚緥妯″紡"""
+    global _intelligent_liuye
+    if _intelligent_liuye is None:
+        with _init_lock:
+            if _intelligent_liuye is None:
+                logger.info("馃殌 棣栨鍒濆鍖栨煶鍙剁郴缁?..")
+                _intelligent_liuye = IntelligentLiuye()
+            else:
+                logger.info("鈾伙笍 浣跨敤宸插瓨鍦ㄧ殑鏌冲彾瀹炰緥")
+    else:
+        logger.info("鈾伙笍 浣跨敤宸插瓨鍦ㄧ殑鏌冲彾瀹炰緥")
+    return _intelligent_liuye
+
+# 瀵煎嚭鍏ㄥ眬瀹炰緥渚涙祴璇曚娇鐢?
+# intelligent_liuye = get_intelligent_liuye() # 鍒犻櫎鑷姩瀹炰緥鍖栵紝閬垮厤閲嶅鍚姩

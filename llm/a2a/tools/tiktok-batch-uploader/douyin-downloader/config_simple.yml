@@ -1,0 +1,48 @@
+﻿avatar: false
+cookies:
+  ? ''
+  : douyin.com
+  IsDouyinActive: 'true'
+  UIFID_TEMP: e1617e19247cec908ae6c487b3b625761bd9a4d9dbcc20820fe1994cc46a90116f8ef50a68c78eaa7d54a4ae669387684a81c3732ba76d5145faeb518e27281a2dba5b90fd3d771876d44f0811b2178a
+  __ac_nonce: 068ef8d4f007bfc1c8102
+  __ac_signature: _02B4Z6wo00f01kTbWJwAAIDDm4Cr02gyWQpE-zQAAPno24
+  __security_mc_1_s_sdk_crypt_sdk: 1b49b400-44f4-9660
+  architecture: amd64
+  bd_ticket_guard_client_data: eyJiZC10aWNrZXQtZ3VhcmQtdmVyc2lvbiI6MiwiYmQtdGlja2V0LWd1YXJkLWl0ZXJhdGlvbi12ZXJzaW9uIjoxLCJiZC10aWNrZXQtZ3VhcmQtcmVlLXB1YmxpYy1rZXkiOiJCRDU3WWFyWDl4d01EUkc4YXRrYWYyZyswdmlUTGZDTlZnUStmdFlTVG5kQk91QTIvK2dhV1FuLzZ5ZG51bGN4MTRlMU5FaFhJSDNzQW9LV1F4ZlpudzA9IiwiYmQtdGlja2V0LWd1YXJkLXdlYi12ZXJzaW9uIjoyfQ%3D%3D
+  bd_ticket_guard_client_web_domain: '2'
+  biz_trace_id: 0e2acb8d
+  device_web_cpu_core: '16'
+  device_web_memory_size: '16'
+  dy_sheight: '864'
+  dy_swidth: '1536'
+  enter_pc_once: '1'
+  fpk1: U2FsdGVkX1+/yAUDMSGAiaD2/b/RH97aSRV6QOrf4mmVZyg8C0z31YO+qB+tKfvKJuzUIAv9/LbUuhBnB+Pp+w==
+  fpk2: fefa025f70a0436e3bd2c2c63368415a
+  gd_random: eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4yMDU2MTY4NTg2OTQ5NzkxNH0=.w2alDiz0kRNEAeJbgsWiQKsxXmbhzd8aYhGGCFiiigY=
+  home_can_add_dy_2_desktop: '%220%22'
+  odin_tt: 9ddcc3fc30780e21bee0180af7a0e12d3f0a7fe7ce77c9376bda675b0d0b1cab2a7d60cb25b3e17c3d0c64ea22307d2f21e950d7e42651a254526b092dfcf1e12f81c977ec2447c49ca312ce78228d04
+  passport_csrf_token: da0a62930979b0486adf772a0a105cb4
+  passport_csrf_token_default: da0a62930979b0486adf772a0a105cb4
+  s_v_web_id: verify_mgrxydqo_EtOiMlgl_l2Bl_43yN_8XJ7_U5m2UTZmpqpf
+  strategyABtestKey: '%221760529747.161%22'
+  stream_player_status_params: '%22%7B%5C%22is_auto_play%5C%22%3A0%2C%5C%22is_full_screen%5C%22%3A0%2C%5C%22is_full_webscreen%5C%22%3A0%2C%5C%22is_mute%5C%22%3A0%2C%5C%22is_speed%5C%22%3A1%2C%5C%22is_visible%5C%22%3A1%7D%22'
+  stream_recommend_feed_params: '%22%7B%5C%22cookie_enabled%5C%22%3Atrue%2C%5C%22screen_width%5C%22%3A1536%2C%5C%22screen_height%5C%22%3A864%2C%5C%22browser_online%5C%22%3Atrue%2C%5C%22cpu_core_num%5C%22%3A16%2C%5C%22device_memory%5C%22%3A16%2C%5C%22downlink%5C%22%3A1.3%2C%5C%22effective_type%5C%22%3A%5C%223g%5C%22%2C%5C%22round_trip_time%5C%22%3A250%7D%22'
+  ttwid: 1%7CfpxLDAJGovg5ZE0N8mWbSg6M2JS_QtKYS4rmXebPEYo%7C1760529749%7C998870e0b59c7a2d7991287af55d37973af294ddc94ed2c7d064f3b3ee67fc94
+  volume_info: '%7B%22isUserMute%22%3Afalse%2C%22isMute%22%3Afalse%2C%22volume%22%3A0.5%7D'
+  x-web-secsdk-uid: 4b4efe06-e988-42aa-80d6-c3cc1681f9ed
+  xgplayer_user_id: '657796541065'
+cover: true
+end_time: ''
+json: true
+link: []
+mode:
+- post
+music: true
+number:
+  like: 0
+  post: 10
+path: ./Downloaded/
+retry_times: 3
+start_time: ''
+thread: 5
+

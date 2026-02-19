@@ -1,0 +1,48 @@
+{
+  "network_info": {
+    "base_network": "172.20.10",
+    "gateway": "172.20.10.1",
+    "subnet_mask": "255.255.255.240",
+    "dns": "172.20.10.1"
+  },
+  "devices": {
+    "iPhone15_hotspot": {
+      "ip": "172.20.10.1",
+      "type": "gateway",
+      "description": "iPhone15热点网关"
+    },
+    "sisieyes": {
+      "ip": "172.20.10.2",
+      "type": "esp32_s3_cam",
+      "description": "SISIeyes显示设备 (ESP32-S3 CAM)",
+      "mac": "unknown",
+      "status": "active"
+    },
+    "sisidesk": {
+      "ip": "172.20.10.5",
+      "type": "esp32_c3",
+      "description": "sisidesk坐台设备 (ESP32-C3)",
+      "mac": "unknown",
+      "status": "configured",
+      "fixed_ip": true
+    },
+    "pc_main": {
+      "ip": "172.20.10.9",
+      "type": "pc",
+      "description": "主控PC (动态分配)",
+      "status": "active"
+    }
+  },
+  "reserved_ips": [
+    "172.20.10.1",
+    "172.20.10.2",
+    "172.20.10.5"
+  ],
+  "available_ips": [
+    "172.20.10.3",
+    "172.20.10.4",
+    "172.20.10.6",
+    "172.20.10.7",
+    "172.20.10.8"
+  ]
+}

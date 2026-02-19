@@ -1,0 +1,19 @@
+auto_cookie: true
+auto_refresh: true
+avatar: false
+cookies: auto
+cover: true
+end_time: ''
+json: true
+link: []
+mode:
+- post
+music: true
+number:
+  like: 0
+  post: 10
+path: ./Downloaded/
+refresh_interval: 172800
+retry_times: 3
+start_time: ''
+thread: 5

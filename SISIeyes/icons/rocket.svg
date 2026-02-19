@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="emoji" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+  <g id="color">
+    <path fill="#d0cfce" d="m36 61.5c-2.209 0-4-1.791-4-4v-8.5h8v8.5c0 2.209-1.791 4-4 4z"/>
+    <path fill="#9b9b9a" d="m32 57.5v-8.5h8v8.5c0 2.209-1.791 4-4 4s-4-1.791-4-4z"/>
+    <path fill="#ea5a47" d="m36 49c-6.627 0-12-5.373-12-12v-25c0-6.627 5.373-12 12-12s12 5.373 12 12v25c0 6.627-5.373 12-12 12z"/>
+    <circle cx="36" cy="25" r="6" fill="#fff"/>
+    <circle cx="36" cy="25" r="3" fill="#3f3f3f"/>
+    <path fill="#fcea2b" d="m20 61.5c0-2.209 1.791-4 4-4h24c2.209 0 4 1.791 4 4v6.5c0 2.209-1.791 4-4 4h-24c-2.209 0-4-1.791-4-4z"/>
+    <path fill="#f1b31c" d="m20 61.5v6.5c0 2.209 1.791 4 4 4h24c2.209 0 4-1.791 4-4v-6.5z"/>
+  </g>
+  <g id="hair"/>
+  <g id="skin"/>
+  <g id="skin-shadow"/>
+  <g id="line">
+    <path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2" d="m36 61.5c-2.209 0-4-1.791-4-4v-8.5h8v8.5c0 2.209-1.791 4-4 4z"/>
+    <path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2" d="m36 49c-6.627 0-12-5.373-12-12v-25c0-6.627 5.373-12 12-12s12 5.373 12 12v25c0 6.627-5.373 12-12 12z"/>
+    <circle cx="36" cy="25" r="6" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+    <circle cx="36" cy="25" r="3" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+    <path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2" d="m20 61.5c0-2.209 1.791-4 4-4h24c2.209 0 4 1.791 4 4v6.5c0 2.209-1.791 4-4 4h-24c-2.209 0-4-1.791-4-4z"/>
+  </g>
+</svg>

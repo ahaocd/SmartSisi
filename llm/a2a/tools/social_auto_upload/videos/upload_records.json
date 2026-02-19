@@ -1,0 +1,23 @@
+{
+  "records": {
+    "767a20b13211726015c643816abcacfd_ab_dedup": {
+      "uploaded_to": {
+        "tiktok": true
+      },
+      "last_upload_time": "2025-12-31T22:02:24.834720"
+    },
+    "767a20b13211726015c643816abcacfd_ab_dedup_ab_dedup": {
+      "uploaded_to": {
+        "tiktok": true
+      },
+      "last_upload_time": "2025-12-31T22:04:43.288066"
+    },
+    "2025-10-02": {
+      "uploaded_to": {
+        "tiktok": true
+      },
+      "last_upload_time": "2025-12-31T22:51:49.673895"
+    }
+  },
+  "last_update": "2025-12-31T22:51:49.673895"
+}

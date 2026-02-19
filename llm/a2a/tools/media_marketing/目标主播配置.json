@@ -1,0 +1,705 @@
+{
+  "version": "1.0",
+  "updated_at": "2025-10-31",
+  "categories": {
+    "球房运营": {
+      "description": "台球、桌球、斯诺克等球房运营主播",
+      "priority": 1,
+      "accounts": [
+        {
+          "douyin_id": "MS4wLjABAAAAFpgD6zpuYqN6r-1MyJN3ivEZqjyKIv2hmeDerQelY5q8AtaHpaqCmBV7kfi3A7kz",
+          "nickname": "",
+          "tags": [
+            "球房",
+            "运营"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAzcBFC8pBwhQbQ06JsvKmsNq2-lBf7dfJfuEuKLSlRxo",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAAY42KOIT-7QkAsJsznUaHFCYk-9ELSis7S9zuSwf1pbazKB_Kxr3KfTVlCY21xWD",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA4tXpNzHG-3khtkjCR9g_s7y1kRCgmEY_-BXLy6D1A-g",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAK9QtKqClu16yflogmQBE0HETiPijhfmjmDuC9Nd62iQ",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAYw-QyIb50rwbzW_0jGCmc7AJFSG7RGsQAbsfp6umHuOosXiyHzlRXld9Yoa_LbBn",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA7YSQ0D64q7fzFqXz9hE5dJp1rvyN2K1A0nSUACFj44G5n3q7nCFSL5WkEPAIvpZx",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAvUeG5t_SGz8DnCsAf0ZsBa7jZNcdaFxXpx5hoW6JFEXow0bE76jfkpsYTb5mr7dY",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAP1PPGzzZL-pl0lxCtBcl7DCaehILAmHhaWQYH96kEaxG0oqdqmxWlqq-cVkARnJ_",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAnJ3FdPUDIKCGAmfW2XWsycZkkB08bSDp30BxMJwUneQ",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA9CJqNXQ5pIzgkhlClxkkh_3V1AdayPHW1RbWnGZ5NVfeAiJS6zkl7IEkv9DVVAqu",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAKAg9TZkPCXyWVSWpcAE6SUnEfvOqbjvu7FH5HoHcqmE",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA8S-pfGwV5vjodmQJ4buz2erMGeIYmk0g9ZWw7a0rnRM",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAr6VI6wsGAda7braRiLjZEnUjS6BCYsqxggCNVA5gedo",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAPno4TuX3UKh-uD5HT_dvt3TXyfBYGUGo7OomoIerpYGu3XhzCQERSYmxrBccnGVn",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAJMDTKmFvO_6SqkLOICDTxXVH_kQnLUS5MrSHhGDuPhM",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAWHB7IkafpSn0i2yalHYjbT-S8SKDowi-QOtVnxaguJM",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAstPbPjNSVqX7hPXUBYD-AEZfYKn-p25_UTBqyv4LLfAhoCj3w35iMHwnDx-9UeqO",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAg7cS-qTuYkEninDYG6vQPZynm7vNt-g9yU7ejhVTL8I",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAa6iYnbyoCi-9pDvM6ZxqHkdfIdQ4FeX9lpVywTHE07o",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAcv5TO6jdJaARmU9_S2W_mOJkFkDfalE2exqT77CKLyo",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAE9k3EZULhFvOYUZ3k8Of4ZdyR7M3K5lsgXvvDjecOVmQgaONuKfmGRx7WAb258FL",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAARWh9j4b1orudPWWigcZhOVBB_6xH04N3trdCyUxgTAU",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA8VYlDb_vaxCnEOeEOion3miM1a0RIrWSi5tlVYGF2A9MYk2ReZn37Nk9LK2a6nMi",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAoqIkG7c51XtNAuxt35_9V7M3Ygr5qVTn8TD5LImyS0_od8vYf125GU9K1q83tfew",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAhAEvIhleSzVG8Wuac_wqaoSEFP0xa5xTPDT55tsVEhY",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAWe9g4k75WZUZNBv0MG2oyFsLpmfpXatEgcO1ii4CpnE",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAArC3HMygN6RmeU5qhws_wujtJe1FiDw2EOTpDDK4-jak",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAADsKTDhsR0k5e9YKRbNILS9pdXjGspf5IE9qdLzXWZamtXkz9kb_QaAD25sBn6xci",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAG7C4S2gyphqxa73C86egw8CFb24wZUSxTOyBG41DC1E",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAeEWtO2WZ_k-58swmOycH9yT8ZhA2mpXVGoHaJtDetfg",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAT3-uEtL3Ok1TvjulFyRAwfuQeG_G6vcKgNTGjZ0k5Yo",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAthnsZP3pWCVHzFFqYJ-XWgFvIcMH9atdLX-lN7sWzQvY18G4qeJbXWFsDJ5JzWAN",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAYmr3jqhsuDUCWF-MW_462ohOxMbn1hVfjHPNeI5OpUw",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAG3TZ9ZXQWYBoi6aHaJh7dUXq6SPaYDBRTbq1cdeibzGaA2CwQ_4kOptzPrFGWUAd",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAdw-hNESNALU5T1Qbiia1FnFeP71GV-60ye1DRQ_vBXQ",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAArHIxWB01rBVGmZQ-rmA2BkmfJeRnna3ppJIkwvczaWw",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAUYl_RtCcHNG_dRZfy0wwbt21DX-nL3tcuZ-u_fHAI18",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAXRqxbCRGghbWC84oTF0HAXgC3h6F-X6DeSBTwNIq1Ts",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA3G7kglf0vL6v2Ehl6Y6F0fSP6RW7PFiPXcLid4ojSsM",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAFk48swBqbGr6x_8Nqh8zlBppmnb4zR4xRtGeio4eabk",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA7ayUh8oNuzEMt6N1rNIvCryM0PF5-UGMpMv-7MAaxwp9lcC3KFCLKhjQuoXF84uY",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA7AKnTXREf7SlvcOHrA0awbG-jNatbIx-djWvjEKIYPI",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAl_j-h_3yO5N0Aaz6uMbTmaWhDefarH29Omo4pqHeGWMyekuV6YLZTMTvAfbUe1Bk",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA7wgLRHXaxRrp3JgmskYL9A2MHFgqx9Xt6hCaR4GtO68",
+          "nickname": "",
+          "tags": [
+            "球房"
+          ]
+        }
+      ]
+    },
+    "KTV运营": {
+      "description": "KTV、量贩KTV等运营主播",
+      "priority": 2,
+      "accounts": []
+    },
+    "足浴会所": {
+      "description": "足浴、SPA、会所等运营主播",
+      "priority": 2,
+      "accounts": [
+        {
+          "douyin_id": "MS4wLjABAAAA1rmemolFsfwA2LbJ7gQ4V5K4aEclLYSBDL432HZsgPc",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAABRQQklvMWfy3PhJhdpDm24fRSVKaeo9565wC_xewTVM",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAbhMBBOQd6Uhl2Olwv-FCQUc6o4-KNjeoEnBr1wBWrSI",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAzAvj8fzQBU_Wa6CL6O1rwcErRBcpyjThI-bLQzMrzmE",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAI8ldheXOhwC4MzUWuwzuM0rZDNKbOGKHeCDvq9OqdRI",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAADE-T3qv-QNUaDVmLHsE1ACr7ALgXsraMWvG0SfMOl1IhvAfuD7Sg1MyTk7T4hDdI",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAoWtP7SfaYPejxmR4Nhe4z_QvCJmqJSi6p358MLIDMUY",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAfm3mueu2SPLhP-_5ADdzEia_mNUa5lpIuZsw3YbH6yY",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA0870kLJhxkDrphQhQXMtfpA72GJZ3sEbquEOzebxoJ0",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAxuzeKREIP1CnFIO4UCWLAMoi5sgOj2yPVCpYeNwPYG6fOUDkULYplw4S8kdpvzJk",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAhEOGxiqWi_SEO8cU5zJ6bE0oDyIY1o24xnA3AaBs__M",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA8jm4oxc9aE3Z2Q52x_RP3fCYhIrKD-6Tl-yscaj7BSE",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAZF9_qKxp7PpucNSMp60ldBD_-SxHPIpK0dotGIXoA_Q",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAs5Ur2SuS-1FsR2b45PXCjDHwvXsLA6R5zoXrX-wx3Rfjl7C0FFCyJgFN0SdjYqLS",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAdc6gP4oJPX90VZdIilqE8G_y4S3q0Ksj2Lx2RmP5qISCL85UuQy0_zLLbFCXXrbw",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAw-k0OayVQjhDHIv-XFAm7_lIMPgZ0vC2GnA_nR6EgwcPz5YM3fuo1-vpvIYy3LNF",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAi9wiDw3lgDQ9uXap0YZYRKSz1Cb_zZ8CRqsowRZtwS4",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAVwHsYg7kss9susgwYFwX14b30PX0qxd8ppSgy3UzaJvw3QFsLt7VEDgn6ULlyg6v",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAT7DP8W5HvpHdJhSBL0jgjLuno6kwBFbzO7Bq8cWR4leeqZJfOW9Iv84vNOLu18nV",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAwVMeZ7K1T_6y5BkITxVBZKt5fWtIOB3kH9cyisDMnD1mAM_EPQtphNZbvfWkJOLS",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAm_emsF4zyy9H1TXWxiAYfm_Cqv8rhxW_2ltSIUjgMFA",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAABPhMYeJ74CCZir6mf1AbCe8FOfJRVKwVg7jLhXKTBtM",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAANB9u4DwysmlnpWZ4xJ0zA7qTcZhJQvppFhRSCqtVpcZigO7oBC_zB_4FMhLcFKWq",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAd4RrH9M9CCnCfKv6xZh6jd9uM8DbYcH4avOE86QupfMFhZwd7Ib7fv1jf7LggU4x",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAKDM_E3HSDILPVDsv2KoPG6ULKxkaTUaVtvxNTLIwMjs",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAXDUJkQGBGiNCOVEwHsDpSGy_LWh0upPywEsRUpQrEBpUhT_t-W83UI5xPxZuAHr2",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAOsYaDsBIQTBYDbg5GQGfcO9514Ga0-cDe4HlGfbfh3ZgnnoMeAZCzKR6Q6quDe6p",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAdmwtb4hv7zgJFaG1N9xo8umhIhX8m_GcSJMXnAr6CLg",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAADDtf66GQmMi2gbVaskDKOXsvadrFmTXLukIpmlSBKWA",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAc3jpN5edlTWRMfB4jd0blsatPrDLYm1hvBTA0Y-igHk",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAj57n_qcjPtSi-BAaxX7fKIph6wAmJUM8SrKWlFk7Fwk",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAK9Tq5NmtT-i1pnxVOXNwLuEBGnc8eWYuWCxtdcgRWZs",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAuwuYtKmJLhiVRNbaXBQk-eNtAgGGx50JK8-XCuk91JGNTt6YySI6wsGB_m6eqFlp",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA9twEjnkwoyuyvo24zU8OnOLevrhD_9ExGyQsb6BP0hs5wuI4eMmD1y-BWs6nd4r6",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA35oqx3LALtz_SORUp1EwAf6N87EGxt6baxt1Y91K_yw",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAALCniHl7eZoi7rwppgBYRfMYu8gWImPwGyAHrM-MSokU",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAJfgPh49L3pKzXEvr4iSy9oGGZ_l--TUTQFa5LjuR3yw",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA3R7_l_TRRfzmAWTWgL3ESQMwDIZBykF9EQFrvxMj04aWBp9sL2ne_vGXJiVwrQcN",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAA2RQsUGZiCiVGXuzjfMyzxlHOldd04fhjHRnAA8ytDn5p18n-x1XoV1D9Q95k3xWg",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAOInJERBfoFevdZcmefDGtfv9N9fOR0aJeWxp1uBPXJ3q4PgLUJuaqRnvv82f8Ytg",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAACN8PyC2SU5HAjtGU2lpzcjcuPqCtfIiCf5hYQZKyj7g",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAuyUbxgkbtd8zQymTTbLht4hIOz5G7CXfo58qQc4r630",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        },
+        {
+          "douyin_id": "MS4wLjABAAAAkSJeQZ_hysmZfQY6fInn8vYoNpGFnRfiSc9jgdUUaPo",
+          "nickname": "",
+          "tags": [
+            "足浴",
+            "会所"
+          ]
+        }
+      ]
+    }
+  },
+  "cleanup_rules": {
+    "enable_auto_cleanup": true,
+    "cleanup_interval_days": 7,
+    "rules": {
+      "analyzed_users": {
+        "description": "清理N天前分析过的用户记录",
+        "keep_days": 30
+      },
+      "commented_videos": {
+        "description": "清理N天前的评论记录",
+        "keep_days": 90
+      },
+      "used_comments": {
+        "description": "清理N天前的评论文本记录",
+        "keep_days": 30
+      },
+      "failed_accounts": {
+        "description": "清理多次失败的目标账号",
+        "max_failures": 5
+      }
+    }
+  }
+}

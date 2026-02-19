@@ -1,0 +1,981 @@
+# sisi_audio_output.py
+# ESP32音频输出管理器 - 实现队列管理和边界标记处理
+# 作者: sisi liu
+# 日期: 2025-04-03
+
+import os
+import time
+import asyncio
+import threading
+import tempfile
+import subprocess
+import traceback
+import logging
+import queue
+import audioop
+from pathlib import Path
+import re
+import glob
+
+# 导入统一的音频工具
+from utils.stream_util import AudioManagerUtil
+
+class AudioState:
+    IDLE = "idle"
+    PLAYING = "playing" 
+    PAUSED = "paused"
+    ERROR = "error"
+
+class AudioOutputManager:
+    """流式音频输出管理器 - 专注于设备端音频处理"""
+    
+    # 🔥 单例实例
+    _instance = None
+
+    # 使用统一的音频参数配置
+    # 使用统一的音频参数配置
+    SAMPLE_RATE = AudioManagerUtil.SAMPLE_RATE
+    FRAME_DURATION = AudioManagerUtil.FRAME_DURATION
+    FRAME_SIZE = AudioManagerUtil.FRAME_SIZE
+    PRE_BUFFER_FRAMES = AudioManagerUtil.PRE_BUFFER_FRAMES
+
+    # 🔥 2025-08-15 优化：ESP32-S3流式处理参数
+    CHUNK_SIZE = 2048    # 音频块大小，2KB更适合ESP32-S3
+    MAX_QUEUE_SIZE = 50  # 最大队列长度，防止内存溢出
+    STREAM_TIMEOUT = 0.05 # 流式处理超时时间，50ms更平滑
+
+    # 使用统一的音频标记帧常量
+    AUDIO_START_MARKER = AudioManagerUtil.AUDIO_START_MARKER
+    AUDIO_END_MARKER = AudioManagerUtil.AUDIO_END_MARKER
+    HEARTBEAT_MARKER = AudioManagerUtil.HEARTBEAT_MARKER
+
+    # 日志级别定义
+    LOG_DEBUG = 0
+    LOG_INFO = 1
+    LOG_WARN = 2
+    LOG_ERROR = 3
+    LOG_CRITICAL = 4
+
+    DEFAULT_LOG_LEVEL = LOG_WARN
+
+    @classmethod
+    def get_instance(cls):
+        """获取单例实例"""
+        return cls._instance
+    
+    def __init__(self, logger=None, data_callback=None, state_callback=None, debug_mode=False):
+        """初始化音频输出管理器
+        Args:
+            logger: 日志记录器
+            data_callback: 音频数据回调函数
+            state_callback: 状态变化回调函数
+            debug_mode: 是否启用调试模式
+        """
+        # 🔥 设置单例实例
+        AudioOutputManager._instance = self
+        self.logger = logger or logging.getLogger("AudioOutputManager")
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+        
+        # 🔥 流式队列系统
+        self.tts_queue = queue.PriorityQueue(maxsize=self.MAX_QUEUE_SIZE)  # 优先级队列
+        self.audio_play_queue = queue.Queue(maxsize=self.MAX_QUEUE_SIZE)
+        self.stream_chunk_queue = queue.Queue(maxsize=self.MAX_QUEUE_SIZE * 2)  # 流式块队列
+
+        # 🔥 修复：添加缺少的回调属性并正确设置
+        self.on_play_start = None
+        self.on_play_end = None
+        self.on_audio_data = data_callback  # 正确设置音频数据回调
+        
+        self.state = AudioState.IDLE
+        self.abort = False
+        self.running = True
+        
+        # 添加统一的状态管理标志（参考xiaozhi-server）
+        self.client_is_speaking = False  # 在__init__中初始化client_is_speaking属性
+        
+        self.data_callback = data_callback
+        self.state_callback = state_callback
+        
+        # 🎯 流式音频累计统计（减少日志输出）
+        self.stream_stats = {
+            "total_chunks": 0,
+            "total_bytes": 0,
+            "last_priority": None,
+            "session_start": time.time()
+        }
+        self._level_interval = 0.04
+        self._last_level_ts = 0.0
+        self.debug_mode = debug_mode
+        # 🔥 恢复正常日志级别
+        self.log_level = self.DEFAULT_LOG_LEVEL
+        
+        # 🔥 添加OPUS编码器单例，避免重复初始化
+        self._opus_converter = None
+        
+        # 🔥 添加流控状态管理（参考xiaozhi-server）
+        self.audio_flow_control = {
+            "last_send_time": 0,
+            "packet_count": 0,
+            "start_time": time.perf_counter(),
+            "sequence": 0,  # 添加序列号
+        }
+        
+        # 插入控制：暂停/恢复
+        self._pause_streaming = False
+        
+        # 添加conn_from_mqtt_gateway属性（参考xiaozhi-server）
+        self.conn_from_mqtt_gateway = False
+        
+        # 🔥 流式处理线程
+        self.tts_thread = threading.Thread(target=self._process_tts_queue, daemon=True)
+        self.audio_thread = threading.Thread(target=self._process_audio_queue, daemon=True)
+        self.stream_thread = threading.Thread(target=self._process_stream_chunks, daemon=True)  # 新增流式处理线程
+
+        self.tts_thread.start()
+        self.audio_thread.start()
+        self.stream_thread.start()
+        
+        self.logger.info("ESP32音频输出管理器初始化完成")
+
+    def add_opus_frames(self, opus_frames, label: str = "effect", is_final: bool = False) -> bool:
+        """直接向播放队列追加一段已编码的OPUS帧，不打断当前流式会话。
+        Args:
+            opus_frames: List[bytes] OPUS帧序列
+            label: 队列项文本标识（用于日志）
+            is_final: 是否标记为最终块（通常为False，交由上层统一结束）
+        Returns:
+            bool: 是否入队成功
+        """
+        try:
+            if not opus_frames or len(opus_frames) == 0:
+                self.log(self.LOG_WARN, f"跳过无效OPUS帧: {label}")
+                return False
+            
+            # 🔥 简化逻辑：直接入队，由播放线程统一处理
+            self.audio_play_queue.put((label, opus_frames, is_final))
+            print(f"[AudioManager] ✅ 入队: {label}, {len(opus_frames)}帧")
+            return True
+        except Exception as e:
+            self.log(self.LOG_ERROR, f"入队OPUS帧失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _calculate_timestamp_and_sequence(self, start_time, packet_index, frame_duration=60):
+        """
+        🔥 新增：计算音频数据包的时间戳和序列号（参考xiaozhi-server）
+        Args:
+            start_time: 起始时间（性能计数器值）
+            packet_index: 数据包索引
+            frame_duration: 帧时长（毫秒），匹配 Opus 编码
+        Returns:
+            tuple: (timestamp, sequence)
+        """
+        # 计算时间戳（使用播放位置计算）
+        timestamp = int((start_time + packet_index * frame_duration / 1000) * 1000) % (
+            2**32
+        )
+
+        # 计算序列号
+        sequence = self.audio_flow_control["sequence"]
+
+        return timestamp, sequence
+
+    def _reset_flow_control(self):
+        """🔥 新增：重置流控状态"""
+        self.audio_flow_control = {
+            "last_send_time": 0,
+            "packet_count": 0,
+            "start_time": time.perf_counter(),
+            "sequence": 0,  # 添加序列号
+        }
+        self.log(self.LOG_DEBUG, "流控状态已重置")
+
+    def set_callbacks(self, on_play_start=None, on_play_end=None, on_audio_data=None):
+        """设置回调函数
+        Args:
+            on_play_start: 播放开始回调
+            on_play_end: 播放结束回调
+            on_audio_data: 音频数据回调
+        """
+        if on_play_start is not None:
+            self.on_play_start = on_play_start
+        if on_play_end is not None:
+            self.on_play_end = on_play_end
+        if on_audio_data is not None:
+            self.on_audio_data = on_audio_data
+            
+    def update_state(self, new_state):
+        """更新状态并通知回调"""
+        # 🔥 简化日志：只在状态真正变化时输出
+        if self.state != new_state:
+            print(f"[AudioManager] 状态: {self.state} → {new_state}")
+        
+        # 🔥 统一状态管理，避免竞态条件（修复逻辑错误）
+        if new_state == AudioState.PLAYING:
+            if not self.client_is_speaking:
+                self.client_is_speaking = True
+                self.state = new_state
+                if self.state_callback:
+                    self.state_callback(new_state)
+        elif new_state == AudioState.IDLE:
+            if self.client_is_speaking:
+                self.client_is_speaking = False
+                self.state = new_state
+                if self.state_callback:
+                    self.state_callback(new_state)
+        else:
+            # 其他状态变化
+            self.state = new_state
+            if self.state_callback:
+                self.state_callback(new_state)
+
+    def _push_audio_level(self, pcm_bytes):
+        """向WebUI发送音量级别（RMS）"""
+        try:
+            if not pcm_bytes or len(pcm_bytes) < 2:
+                return
+            now = time.time()
+            if now - self._last_level_ts < self._level_interval:
+                return
+            rms = audioop.rms(pcm_bytes, 2)
+            level = min(1.0, max(0.0, rms / 32768.0))
+            from core import wsa_server
+            web_instance = wsa_server.get_web_instance()
+            if web_instance:
+                web_instance.add_cmd({"audio_level": level})
+            self._last_level_ts = now
+        except Exception:
+            pass
+
+    def send_audio_data(self, audio_data, client_callback=None):
+        """统一的音频发送处理
+        Args:
+            audio_data: 音频数据
+            client_callback: 客户端回调函数,优先级高于data_callback
+        """
+        try:
+            callback = client_callback or self.data_callback
+            if not callback:
+                self.log(self.LOG_ERROR, "未设置音频数据回调")
+                return False
+                
+            # 使用统一的音频处理工具分割帧
+            frames = AudioManagerUtil.split_audio_to_frames(audio_data)
+            if not frames:
+                return False
+                
+            # 添加标记帧
+            marked_frames = AudioManagerUtil.add_markers_to_frames(frames)
+            
+            # 发送所有帧
+            for frame in marked_frames:
+                callback(frame)
+                # 控制发送速率
+                time.sleep(0.001)  # 1ms延迟
+            
+            return True
+            
+        except Exception as e:
+            self.log(self.LOG_ERROR, f"发送音频数据异常: {str(e)}")
+            traceback.print_exc()
+            return False
+
+    def _convert_to_opus(self, audio_file):
+        """转换音频文件为opus格式
+        Args:
+            audio_file: 音频文件路径
+        Returns:
+            opus_data列表
+        """
+        # 使用统一的音频工具进行转换
+        return AudioManagerUtil.convert_to_opus_frames(audio_file)
+
+    def _convert_raw_audio_to_opus(self, raw_audio_data):
+        """将原始音频数据转换为OPUS格式（流式转换）
+        🔥 核心修复：保持编码器状态连续，不在流中重置
+        """
+        try:
+            # 🔥 修复：移除100字节限制，让编码器内部缓冲处理
+            if not raw_audio_data:
+                return None
+
+            pcm_data = raw_audio_data
+            self.log(self.LOG_DEBUG, f"处理PCM数据: {len(pcm_data)}字节")
+
+            # 确保PCM数据长度是偶数（16bit采样）
+            if len(pcm_data) % 2 != 0:
+                pcm_data = pcm_data[:-1]
+
+            if len(pcm_data) == 0:
+                return None
+
+            # 使用OPUS库转换PCM数据
+            try:
+                from esp32_liusisi.opus_helper import OpusConvertor
+
+                # 🔥 修复：使用单例模式，不在流中重置编码器
+                if self._opus_converter is None:
+                    self._opus_converter = OpusConvertor(debug=False)  # 🔥 关闭调试
+                    self.log(self.LOG_INFO, "创建OPUS编码器实例")
+
+                # 🔥 关键：不要在这里重置编码器！让编码器保持状态连续
+
+                opus_frames = []
+                def collect_opus_frame(opus_frame):
+                    opus_frames.append(opus_frame)
+                    if len(opus_frames) <= 3 or len(opus_frames) % 20 == 0:
+                        self.log(self.LOG_DEBUG, f"OPUS帧 #{len(opus_frames)}: {len(opus_frame)}字节")
+
+                # 直接流式编码PCM数据，不设置end_of_stream
+                self._opus_converter.encode_pcm_to_opus_stream(
+                    pcm_data,
+                    end_of_stream=False,  # 🔥 关键：不标记流结束
+                    callback=collect_opus_frame
+                )
+
+                # 🔥 即使没有产生完整帧也返回空列表，而不是None
+                return opus_frames if opus_frames else []
+                    
+            except Exception as e:
+                self.log(self.LOG_ERROR, f"PCM转OPUS异常: {str(e)}")
+                traceback.print_exc()
+                return None
+        except Exception as e:
+            self.log(self.LOG_ERROR, f"PCM转OPUS异常: {str(e)}")
+            traceback.print_exc()
+            return None
+
+    def log(self, level, message):
+        """记录日志，按级别输出
+        Args:
+            level: 日志级别
+            message: 日志信息
+        """
+        # 低于当前日志级别的日志不输出
+        if level < self.log_level:
+            return
+            
+        level_prefix = {
+            self.LOG_DEBUG: "[DEBUG]",
+            self.LOG_INFO: "[INFO]",
+            self.LOG_WARN: "[WARN]",
+            self.LOG_ERROR: "[ERROR]",
+            self.LOG_CRITICAL: "[CRITICAL]"
+        }.get(level, "[INFO]")
+        
+        self.logger.info(f"{level_prefix} AudioManager: {message}")
+    
+    def set_callbacks(self, on_play_start=None, on_play_end=None, on_audio_data=None):
+        """设置回调函数"""
+        self.on_play_start = on_play_start
+        self.on_play_end = on_play_end
+        self.on_audio_data = on_audio_data
+        self.log(1, "已设置回调函数")
+
+    def is_streaming(self):
+        """查询当前是否处于流式播放状态"""
+        return self.state == AudioState.PLAYING or self.client_is_speaking
+    
+    def add_tts_task(self, text, audio_file, priority=0):
+        """添加TTS任务到队列
+        Args:
+            text: TTS文本内容
+            audio_file: 音频文件路径
+            priority: 优先级，兼容SmartSisi系统（数字越大优先级越高）
+        """
+        try:
+            if not os.path.exists(audio_file):
+                self.log(self.LOG_WARN, f"音频文件不存在: {audio_file}")
+                return False
+
+            # 检查文件是否可以访问且非空
+            if not os.access(audio_file, os.R_OK):
+                self.log(self.LOG_WARN, f"音频文件无法访问: {audio_file}")
+                return False
+
+            if os.path.getsize(audio_file) == 0:
+                self.log(self.LOG_WARN, f"音频文件为空: {audio_file}")
+                return False
+
+            # 🔥 修复：转换SmartSisi优先级到Python队列优先级
+            # SmartSisi: 数字越大优先级越高 (7 > 3 > 1)
+            # Python队列: 数字越小优先级越高 (0 > 1 > 7)
+            # 转换公式: queue_priority = 100 - priority
+            queue_priority = 100 - priority
+
+            # 放入优先级队列，格式为(转换后优先级, (文本, 音频文件))
+            self.tts_queue.put((queue_priority, (text, audio_file)))
+            self.log(self.LOG_WARN, f"添加任务: {os.path.basename(audio_file)}, SmartSisi优先级: {priority}, 队列优先级: {queue_priority}")
+            return True
+        except Exception as e:
+            self.log(self.LOG_ERROR, f"添加TTS任务失败: {str(e)}")
+            traceback.print_exc()
+            return False
+
+    def add_stream_chunk(self, chunk_data, priority=0, is_final=False):
+        """添加流式音频块到队列
+        Args:
+            chunk_data: 音频块数据
+            priority: 优先级，数字越小优先级越高
+            is_final: 是否为最后一块
+        """
+        try:
+            if not chunk_data and not is_final:
+                return False
+
+            # 🔥 修复：过滤掉太小的音频块（小于100字节），除了最后一块
+            if chunk_data and len(chunk_data) < 100 and not is_final:
+                self.log(self.LOG_DEBUG, f"跳过太小的音频块: {len(chunk_data)}字节")
+                return False
+
+            # 🎯 累计统计，减少日志输出
+            self.stream_stats["total_chunks"] += 1
+            self.stream_stats["total_bytes"] += len(chunk_data) if chunk_data else 0
+            self.stream_stats["last_priority"] = priority
+            
+            # 只在最后一块或每50块输出一次统计
+            if is_final or self.stream_stats["total_chunks"] % 50 == 0:
+                print(f"[AudioManager] 📥 流式: {self.stream_stats['total_chunks']}块/{self.stream_stats['total_bytes']}字节")
+
+            # 放入流式块队列，格式为(优先级, (块数据, 是否最后一块))
+            self.stream_chunk_queue.put((priority, (chunk_data, is_final)))
+            self.log(self.LOG_DEBUG, f"添加流式块: {len(chunk_data)}字节, 优先级: {priority}, 最后块: {is_final}")
+            
+            # 如果是最后一块，重置统计
+            if is_final:
+                self.stream_stats = {
+                    "total_chunks": 0,
+                    "total_bytes": 0,
+                    "last_priority": None,
+                    "session_start": time.time()
+                }
+            
+            return True
+        except Exception as e:
+            # 🔥 删除疯狂刷屏的调试日志
+            self.log(self.LOG_ERROR, f"添加流式块失败: {str(e)}")
+            return False
+    
+    def abort_current_playback(self):
+        """中止当前播放"""
+        if self.state == AudioState.PLAYING:
+            self.abort = True
+            self.log(self.LOG_INFO, "已请求中止当前播放")
+            return True
+        return False
+    
+    def clear_queues(self):
+        """清空所有队列"""
+        # 清空TTS队列
+        while not self.tts_queue.empty():
+            try:
+                self.tts_queue.get_nowait()
+                self.tts_queue.task_done()
+            except queue.Empty:
+                break
+        
+        # 清空音频播放队列
+        while not self.audio_play_queue.empty():
+            try:
+                self.audio_play_queue.get_nowait()
+                self.audio_play_queue.task_done()
+            except queue.Empty:
+                break
+        
+        # 清空流式块队列
+        while not self.stream_chunk_queue.empty():
+            try:
+                self.stream_chunk_queue.get_nowait()
+                self.stream_chunk_queue.task_done()
+            except queue.Empty:
+                break
+
+        self.log(self.LOG_INFO, "已清空所有音频队列")
+    
+    def start_audio_file_monitor(self, directory='samples', pattern='sample-*.wav'):
+        """启动音频文件监控
+        Args:
+            directory: 监控目录
+            pattern: 文件匹配模式，默认sample-*.wav
+        """
+        # 停止现有监控
+        self.stop_audio_file_monitor()
+        
+        # 设置监控参数
+        self.monitor_directory = os.path.abspath(directory)
+        self.monitor_pattern = pattern
+        self.monitor_running = True
+        
+        # 判断是否已有此目录的监控
+        monitor_key = f"{self.monitor_directory}:{pattern}"
+        if hasattr(self, 'monitored_directories') and monitor_key in self.monitored_directories:
+            self.log(self.LOG_INFO, f"目录已在监控中: {monitor_key}")
+            return True
+        
+        # 初始化已处理文件记录
+        if not hasattr(self, 'processed_files'):
+            self.processed_files = set()
+        if not hasattr(self, 'monitored_directories'):
+            self.monitored_directories = set()
+        
+        # 添加到监控目录集合
+        self.monitored_directories.add(monitor_key)
+        
+        # 初始扫描当前目录的所有文件并标记为已处理
+        initial_files = glob.glob(os.path.join(self.monitor_directory, self.monitor_pattern))
+        if initial_files:
+            self.log(self.LOG_INFO, f"初始扫描: {self.monitor_directory} 中有 {len(initial_files)} 个音频文件")
+            for file_path in initial_files:
+                self.processed_files.add(file_path)
+        
+        if not os.path.exists(self.monitor_directory):
+            self.log(self.LOG_WARN, f"监控目录不存在: {self.monitor_directory}")
+            return False
+        
+        # 启动监控线程
+        monitor_thread = threading.Thread(
+            target=self._monitor_audio_files,
+            args=(self.monitor_directory, self.monitor_pattern),
+            daemon=True
+        )
+        monitor_thread.start()
+        
+        # 保存线程引用
+        if not hasattr(self, 'monitor_threads'):
+            self.monitor_threads = []
+        self.monitor_threads.append(monitor_thread)
+        
+        self.log(self.LOG_INFO, f"已启动音频文件监控: {self.monitor_directory}/{self.monitor_pattern}")
+        return True
+    
+    def stop_audio_file_monitor(self):
+        """停止音频文件监控"""
+        self.monitor_running = False
+        
+        # 等待所有监控线程结束
+        if hasattr(self, 'monitor_threads'):
+            for thread in self.monitor_threads:
+                if thread.is_alive():
+                    thread.join(timeout=1.0)
+            self.monitor_threads = []
+        
+        # 清空监控记录
+        if hasattr(self, 'monitored_directories'):
+            self.monitored_directories = set()
+        
+        self.log(self.LOG_INFO, "已停止所有音频文件监控")
+    
+    def _process_tts_queue(self):
+        """TTS队列处理线程"""
+        while self.running:
+            try:
+                # 获取TTS任务
+                priority, task = self.tts_queue.get(timeout=1.0)
+                
+                # 检查是否为毒丸消息
+                if priority == -999 and task is None:
+                    break
+                
+                if task:
+                    text, audio_file = task
+                    self.log(self.LOG_INFO, f"处理TTS任务: {text[:30]}...")
+                    
+                    try:
+                        # 转换音频文件为opus格式帧列表
+                        opus_datas = self._convert_to_opus(audio_file)
+                        if opus_datas:
+                            # 放入音频播放队列
+                            self.audio_play_queue.put((text, opus_datas))
+                        else:
+                            self.log(self.LOG_WARN, f"转换音频失败: {audio_file}")
+                    except Exception as e:
+                        self.log(self.LOG_ERROR, f"处理TTS任务异常: {str(e)}")
+                        traceback.print_exc()
+                
+                # 标记任务完成
+                self.tts_queue.task_done()
+            
+            except queue.Empty:
+                # 队列超时，继续循环
+                pass
+            except Exception as e:
+                self.log(self.LOG_ERROR, f"TTS队列处理异常: {str(e)}")
+                traceback.print_exc()
+                time.sleep(1)  # 异常情况下暂停一下
+
+    def is_idle(self):
+        """是否空闲（无播放/会话结束且队列空）"""
+        return (
+            self.state == AudioState.IDLE and
+            self.audio_play_queue.empty() and
+            self.stream_chunk_queue.empty()
+        )
+
+    def pause_streaming(self):
+        """暂停流式PCM推进（不丢帧，暂存于stream_chunk_queue与内部缓冲）"""
+        self._pause_streaming = True
+        self.log(self.LOG_INFO, "已暂停流式PCM推进")
+
+    def resume_streaming(self):
+        """恢复流式PCM推进"""
+        self._pause_streaming = False
+        self.log(self.LOG_INFO, "已恢复流式PCM推进")
+
+    def wait_until_idle(self, timeout: float = 5.0):
+        """等待播放空闲（阻塞）"""
+        start = time.time()
+        while time.time() - start < timeout:
+            if self.is_idle():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def _process_stream_chunks(self):
+        """流式音频块处理线程 - 按OPUS帧大小处理"""
+        # 🔥 修复：累积到完整OPUS帧大小（1920字节 = 60ms @16kHz）
+        accumulated_data = bytearray()
+        OPUS_FRAME_SIZE = 1920  # 60ms @ 16kHz = 960 samples * 2 bytes
+        session_started = False
+
+        while self.running:
+            try:
+                # 支持暂停：暂停时不消费队列，但保持线程活跃
+                if self._pause_streaming:
+                    time.sleep(0.02)
+                    continue
+
+                # 获取流式音频块
+                priority, chunk_data = self.stream_chunk_queue.get(timeout=0.1)
+
+                # 检查是否为毒丸消息
+                if priority == -999 and chunk_data is None:
+                    break
+
+                if chunk_data:
+                    chunk, is_final = chunk_data
+
+                    # 🔥 新会话开始时重置编码器（只重置一次）
+                    if not session_started and chunk:
+                        session_started = True
+                        if hasattr(self, '_opus_converter') and self._opus_converter:
+                            self._opus_converter.reset_encoder()
+                            self.log(self.LOG_INFO, f"🔄 新TTS会话，重置OPUS编码器")
+
+                    # 累积数据
+                    if chunk:
+                        accumulated_data.extend(chunk)
+
+                    # 🔥 关键：累积够一个OPUS帧或流结束时处理
+                    while len(accumulated_data) >= OPUS_FRAME_SIZE:
+                        # 取出一个完整帧
+                        frame_data = bytes(accumulated_data[:OPUS_FRAME_SIZE])
+                        accumulated_data = accumulated_data[OPUS_FRAME_SIZE:]
+
+                        self.log(self.LOG_DEBUG, f"处理完整OPUS帧: {OPUS_FRAME_SIZE}字节")
+                        self._process_complete_stream([frame_data], priority, is_final=False)
+
+                    # 流结束时处理剩余数据和flush
+                    if is_final:
+                        if accumulated_data:
+                            # 处理剩余数据（可能不足一帧）
+                            self.log(self.LOG_INFO, f"处理剩余数据: {len(accumulated_data)}字节")
+                            self._process_complete_stream([bytes(accumulated_data)], priority, is_final=False)
+                            accumulated_data.clear()
+
+                        # Flush编码器
+                        self.log(self.LOG_INFO, f"流式音频结束，flush编码器")
+                        self._process_complete_stream([b''], priority, is_final=True)
+                        session_started = False
+
+                # 标记任务完成
+                self.stream_chunk_queue.task_done()
+
+            except queue.Empty:
+                # 队列为空，继续等待
+                continue
+            except Exception as e:
+                self.log(self.LOG_ERROR, f"流式块处理异常: {str(e)}")
+                traceback.print_exc()
+                time.sleep(0.1)
+
+    def _process_complete_stream(self, stream_chunks, priority, is_final=False):
+        """处理完整的音频流
+        Args:
+            stream_chunks: 音频块列表
+            priority: 优先级
+            is_final: 是否为最后一块（需要flush编码器）
+        """
+        try:
+            # 如果是最终块且数据为空，只flush编码器
+            if is_final and stream_chunks == [b'']:
+                self.log(self.LOG_INFO, "🏁 Flush OPUS编码器")
+                if hasattr(self, '_opus_converter') and self._opus_converter:
+                    try:
+                        # Flush编码器获取剩余帧
+                        from esp32_liusisi.opus_helper import OpusConvertor
+                        flush_frames = []
+                        def collect_flush_frame(frame):
+                            flush_frames.append(frame)
+
+                        # 发送空数据并标记流结束以flush
+                        self._opus_converter.encode_pcm_to_opus_stream(
+                            b'',
+                            end_of_stream=True,  # 🔥 关键：标记流结束以flush
+                            callback=collect_flush_frame
+                        )
+
+                        if flush_frames:
+                            # 传递 is_final 标记，确保只在最后一次发送结束标记
+                            self.audio_play_queue.put(("流式音频(flush)", flush_frames, True))
+                            self.log(self.LOG_INFO, f"✅ Flush完成: {len(flush_frames)}帧")
+                    except Exception as e:
+                        self.log(self.LOG_ERROR, f"Flush编码器失败: {str(e)}")
+                return
+
+            if not stream_chunks:
+                self.log(self.LOG_WARN, "⚠️ 空的音频流块列表")
+                return
+
+            # 合并所有音频块
+            combined_audio = b''.join(stream_chunks)
+
+            self.log(self.LOG_INFO, f"🔄 处理流式音频: {len(stream_chunks)}块, 总大小: {len(combined_audio)}字节, 优先级: {priority}")
+
+            # 向WebUI推送音量级别（RMS），用于嘴型
+            self._push_audio_level(combined_audio)
+
+            # 转换为OPUS格式（流式转换，不设置end_of_stream）
+            opus_frames = self._convert_raw_audio_to_opus(combined_audio)
+            # 🔥 修复：只有当有实际帧产生时才放入队列
+            if opus_frames and len(opus_frames) > 0:
+                # 放入音频播放队列
+                # 传递 is_final 标记（此路径非最终块）
+                self.audio_play_queue.put(("流式音频", opus_frames, False))
+                self.log(self.LOG_INFO, f"✅ 流式音频已加入播放队列: {len(opus_frames)}帧")
+                self.log(self.LOG_DEBUG, f"已将 {len(opus_frames)} 帧音频数据放入播放队列")
+            # 🔥 不再报错，因为数据可能被缓冲在编码器内部
+
+        except Exception as e:
+            self.log(self.LOG_ERROR, f"处理完整流异常: {str(e)}")
+            traceback.print_exc()
+    
+    def _process_audio_queue(self):
+        """处理音频队列"""
+        # 关键修改：添加流式会话标识和状态管理
+        streaming_session_active = False
+        total_frames_in_session = 0
+        last_state_change_time = 0
+        # 增加状态变化冷却时间，从0.5秒增加到1.0秒，避免过于频繁的状态切换
+        state_change_cooldown = 1.0  # 状态变化冷却时间（秒）
+
+        while self.running:
+            try:
+                # 支持暂停：暂停时仍允许处理已入队的整文件任务（插队），但不从流式缓冲新增推进
+                if self._pause_streaming and self.audio_play_queue.empty():
+                    # 没有整文件任务也不推进
+                    time.sleep(0.02)
+                    continue
+
+                # 检查队列是否为空
+                if self.audio_play_queue.empty():
+                    # 只有在流式会话结束后才设置为IDLE，并且需要冷却时间
+                    current_time = time.time()
+                    if streaming_session_active and total_frames_in_session > 0 and \
+                       (current_time - last_state_change_time) > state_change_cooldown:
+                        self.log(self.LOG_INFO, f"[AudioManager] 流式会话结束，共{total_frames_in_session}帧")
+                        self.update_state(AudioState.IDLE)
+                        streaming_session_active = False
+                        total_frames_in_session = 0
+                        # 重置流控状态
+                        self._reset_flow_control()
+                        last_state_change_time = current_time
+                    time.sleep(0.1)
+                    continue
+
+                # 获取下一个音频任务
+                task = self.audio_play_queue.get(timeout=1.0)
+                # 🔥 删除疯狂刷屏的调试日志 - 只在队列有变化时输出
+                if not task:
+                    continue
+
+                # 设置当前任务
+                self.current_audio_task = task
+
+                # 处理音频数据
+                if isinstance(task, tuple) and (len(task) == 2 or len(task) == 3):
+                    # 兼容旧格式 (text, frames) 与新格式 (text, frames, is_final)
+                    text = task[0]
+                    opus_datas = task[1]
+                    is_final_chunk = (task[2] if len(task) == 3 else True)
+
+                    # 跳过空数据
+                    if not opus_datas or len(opus_datas) == 0:
+                        self.log(self.LOG_WARN, f"跳过无效音频数据: 空opus_datas列表")
+                        self.audio_play_queue.task_done()
+                        continue
+
+                    # 核心修改：只在会话开始时设置PLAYING，并在第一次有效块前发送开始标记
+                    current_time = time.time()
+                    if not streaming_session_active and \
+                       (current_time - last_state_change_time) > state_change_cooldown:
+                        self.update_state(AudioState.PLAYING)
+                        streaming_session_active = True
+                        self.log(self.LOG_INFO, f"[AudioManager] 流式会话开始")
+                        # 重置流控状态用于新会话
+                        self._reset_flow_control()
+                        last_state_change_time = current_time
+                        # 发送音频开始标记（会话首次）
+                        if self.on_audio_data:
+                            self.on_audio_data(self.AUDIO_START_MARKER)
+                            self.log(self.LOG_DEBUG, "发送音频开始标记（会话首次）")
+
+                    total_frames_in_session += len(opus_datas)
+                    self.abort = False
+
+                    try:
+                        # 调用播放开始回调
+                        if self.on_play_start:
+                            self.on_play_start(text)
+
+                        # 使用opus_datas列表的每一项作为一个音频块
+                        total_chunks = len(opus_datas)
+                        self.log(self.LOG_INFO, f"准备处理 {total_chunks} 个音频数据块")
+
+                        # 仅在会话首块进行预缓冲，后续块不再预缓冲，避免节拍被反复打断
+                        is_first_chunk_in_session = (self.audio_flow_control["packet_count"] == 0)
+                        pre_buffer_frames = min(3, len(opus_datas)) if is_first_chunk_in_session else 0
+                        for i in range(pre_buffer_frames):
+                            if self.on_audio_data and opus_datas[i]:
+                                self.on_audio_data(opus_datas[i])
+                                # 预缓冲也计入已发送帧数，保持节拍连续
+                                self.audio_flow_control["packet_count"] += 1
+                                self.audio_flow_control["sequence"] += 1
+                                self.audio_flow_control["last_send_time"] = time.perf_counter()
+
+                        # 🔥 连续流控：按累计已发送帧数(packet_count)推算期望时间点
+                        start_time = self.audio_flow_control["start_time"]
+
+                        # 发送所有音频帧（跳过已预缓冲的帧）
+                        for i, opus_packet in enumerate(opus_datas[pre_buffer_frames:], pre_buffer_frames):
+                            if self.abort:
+                                self.log(self.LOG_INFO, "播放被中止")
+                                break
+
+                            # 计算期望发送时间：从会话start_time起，按已发送帧数 * FRAME_DURATION 线性推进
+                            expected_time = start_time + (
+                                (self.audio_flow_control["packet_count"] * self.FRAME_DURATION) / 1000.0
+                            )
+                            current_time_perf = time.perf_counter()
+                            delay = expected_time - current_time_perf
+                            if delay > 0:
+                                time.sleep(delay)
+
+                            # 添加时间戳和序列号（如果需要）
+                            if hasattr(self, 'conn_from_mqtt_gateway') and self.conn_from_mqtt_gateway:
+                                timestamp, sequence = self._calculate_timestamp_and_sequence(
+                                    start_time, self.audio_flow_control["packet_count"], self.FRAME_DURATION
+                                )
+                                header = bytearray(16)
+                                header[0] = 1  # type
+                                header[2:4] = len(opus_packet).to_bytes(2, "big")
+                                header[4:8] = sequence.to_bytes(4, "big")
+                                header[8:12] = int(timestamp).to_bytes(4, "big")
+                                header[12:16] = len(opus_packet).to_bytes(4, "big")
+                                complete_packet = bytes(header) + opus_packet
+                                if self.on_audio_data:
+                                    self.on_audio_data(complete_packet)
+                            else:
+                                if self.on_audio_data and opus_packet:
+                                    if i < pre_buffer_frames + 3 or i >= total_chunks - 3 or i % 10 == 0:
+                                        self.log(self.LOG_DEBUG, f"发送音频帧: {i+1}/{total_chunks}, {len(opus_packet)}字节")
+                                    self.on_audio_data(opus_packet)
+
+                            # 更新流控累计状态
+                            self.audio_flow_control["packet_count"] += 1
+                            self.audio_flow_control["sequence"] += 1
+                            self.audio_flow_control["last_send_time"] = time.perf_counter()
+
+                        # 仅在最终块发送音频结束标记
+                        if self.on_audio_data and not self.abort and is_final_chunk:
+                            self.on_audio_data(self.AUDIO_END_MARKER)
+                            self.log(self.LOG_DEBUG, "发送音频结束标记（最终块）")
+
+                        # 调用播放结束回调
+                        if self.on_play_end and not self.abort:
+                            self.on_play_end()
+
+                    except Exception as e:
+                        self.log(self.LOG_ERROR, f"播放音频异常: {str(e)}")
+                        traceback.print_exc()
+                    finally:
+                        self.audio_play_queue.task_done()
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.log(self.LOG_ERROR, f"处理音频队列异常: {str(e)}")
+                traceback.print_exc()
+                time.sleep(0.1)
+
+    def set_log_level(self, level):
+        """设置日志级别
+        Args:
+            level: 日志级别
+        """
+        self.log_level = level
+        self.log(self.LOG_INFO, f"日志级别已设置为: {level}")
+
+    def stop_monitors(self):
+        """停止所有目录监控"""
+        try:
+            # 确保已初始化属性
+            if not hasattr(self, 'monitored_directories'):
+                self.monitored_directories = set()
+                return True
+                
+            # 由于真正的监控线程在stop_audio_file_monitor中停止
+            # 这里只需要清空监控目录集合
+            prev_count = len(self.monitored_directories)
+            self.monitored_directories.clear()
+            
+            # 设置所有监控线程的停止标志
+            self.monitor_running = False
+            
+            self.log(self.LOG_INFO, f"已停止所有目录监控，共 {prev_count} 个")
+            return True
+        except Exception as e:
+            self.log(self.LOG_ERROR, f"停止监控失败: {str(e)}")
+            return False
+
+
+# 使用示例
+if __name__ == "__main__":
+    # 创建输出管理器
+    audio_manager = AudioOutputManager()
+    
+    # 设置回调
+    def on_play_start(text):
+        print(f"开始播放: {text}")
+    
+    def on_play_end():
+        print("播放结束")
+    
+    def on_audio_data(data):
+        print(f"音频数据大小: {len(data)} 字节")
+    
+    audio_manager.set_callbacks(on_play_start, on_play_end, on_audio_data)
+    
+    # 测试播放
+    test_file = "samples/sample-001.wav"
+    if os.path.exists(test_file):
+        audio_manager.add_tts_task("这是一条测试消息", test_file)
+        time.sleep(5)  # 等待播放完成
+    
+    # 停止管理器
+    audio_manager.stop()
+    print("测试完成")

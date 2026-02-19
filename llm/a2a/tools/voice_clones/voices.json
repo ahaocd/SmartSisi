@@ -1,0 +1,16 @@
+{
+  "bitanpiaox": {
+    "uri": "speech:bitanpiaox:tzreijad1y:jzoopelmhzsczgxxijns",
+    "model": "IndexTeam/IndexTTS-2",
+    "model_type": "indextts2",
+    "ref_text": "什么,这也要蓝钻会员了吗,我直接打开这个免费工具,我这里点一点,直接就能搞定一个升级版,我在这里就能下载所有的免费工具,甚至!还有其他的开源项目!声音克隆,配音,带情感控制字幕生成工具, 我不做韭菜的同时,学会了这些AI工具,也就捅破了这层窗户纸,学会了举一反三!哎呦!我真的笨死了!我太开心了!我太伤心了!",
+    "time": "2026-02-01 14:01"
+  },
+  "bitanpiaoxue": {
+    "uri": "speech:bitanpiaoxue:tzreijad1y:shbcxrvqmgzkttkzylwl",
+    "model": "FunAudioLLM/CosyVoice2-0.5B",
+    "model_type": "cosyvoice",
+    "ref_text": "什么,这也要蓝钻会员了吗,我直接打开这个免费工具,我这里点一点,直接就能搞定一个升级版,我在这里就能下载所有的免费工具,甚至!还有其他的开源项目!声音克隆,配音,带情感控制字幕生成工具, 我不做韭菜的同时,学会了这些AI工具,也就捅破了这层窗户纸,学会了举一反三!哎呦!我真的笨死了!我太开心了!我太伤心了!",
+    "time": "2026-02-01 14:06"
+  }
+}

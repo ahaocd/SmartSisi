@@ -1,0 +1,12 @@
+bindPort = 7000
+
+auth.method = "token"
+auth.token = "replace_with_strong_token"
+
+transport.tls.force = true
+
+webServer.addr = "0.0.0.0"
+webServer.port = 7500
+webServer.user = "admin"
+webServer.password = "replace_with_strong_password"
+

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="emoji" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+  <g id="color">
+    <circle cx="36" cy="36" r="22" fill="#8967aa"/>
+    <ellipse cx="36" cy="36" rx="35" ry="8" fill="#d0cfce"/>
+    <ellipse cx="36" cy="36" rx="30" ry="6" fill="#9b9b9a"/>
+    <path fill="#a57cc4" d="m36 14c-12.15 0-22 9.85-22 22 0 2.2.33 4.32.94 6.32 2.94-10.32 12.38-17.82 23.56-17.82s20.62 7.5 23.56 17.82c.61-2 .94-4.12.94-6.32 0-12.15-9.85-22-22-22z"/>
+    <circle cx="28" cy="28" r="3" fill="#d0cfce"/>
+    <circle cx="44" cy="32" r="2" fill="#d0cfce"/>
+    <circle cx="32" cy="44" r="2" fill="#d0cfce"/>
+  </g>
+  <g id="hair"/>
+  <g id="skin"/>
+  <g id="skin-shadow"/>
+  <g id="line">
+    <circle cx="36" cy="36" r="22" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+    <ellipse cx="36" cy="36" rx="35" ry="8" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+    <circle cx="28" cy="28" r="3" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+    <circle cx="44" cy="32" r="2" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+    <circle cx="32" cy="44" r="2" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2"/>
+  </g>
+</svg>

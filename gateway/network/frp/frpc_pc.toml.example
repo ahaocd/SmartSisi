@@ -1,0 +1,22 @@
+serverAddr = "your.vps.example.com"
+serverPort = 7000
+
+auth.method = "token"
+auth.token = "replace_with_strong_token"
+
+transport.tls.enable = true
+
+[[proxies]]
+name = "sisi-ws-9002"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9002
+remotePort = 19002
+
+[[proxies]]
+name = "sisi-tcp-9001"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9001
+remotePort = 19001
+

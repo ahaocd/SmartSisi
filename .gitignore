@@ -1,0 +1,271 @@
+# ========================================================================
+# SmartSisi GitHub 推送排除配置
+# ========================================================================
+
+# ========================================================================
+# 1. 敏感配置文件（包含API密钥、密码等）
+# ========================================================================
+system.conf
+.env
+webui/.env
+config.json
+verifier.json
+
+# 数据库文件（包含用户数据、记忆、历史记录）
+*.db
+*.sqlite
+*.sqlite3
+agent_history.db
+user_profiles.db
+liuye_mcp.db
+
+# ========================================================================
+# 2. 缓存和临时文件
+# ========================================================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.pkl
+*.lock
+dependencies.lock
+
+# 音频缓存和样本文件
+samples/
+cache/
+cache_data/
+
+# A2A/voice_clones 生成输出（字幕、tts json 等）
+llm/a2a/tools/voice_clones/output/
+
+# 语音上下文/中间缓存
+sisi_brain/audio_data_cache/
+*.wav
+*.opus
+*.pcm
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# 日志文件（所有日志目录）
+logs/
+evoliu/logs/
+test/logs/
+llm/a2a/tools/*/logs/
+*.log
+log-*.log
+*.txt
+
+# 临时文件
+*.tmp
+*.temp
+.processed_files.txt
+tatus
+output.wav
+input.wav
+
+# ========================================================================
+# 3. 个人数据和隐私文件
+# ========================================================================
+# 记忆系统数据
+sisi_memory/data/
+sisi_memory/mem0/
+sisi_memory/mem0_custom_backup_*/
+
+# RAG 数据
+sisi_rag/chroma/
+sisi_rag/data/
+
+# 备份文件
+sisi_backups/
+*.backup
+*.bak
+*.old
+main.py.backup
+
+# 用户上传的图片和媒体
+qa/image/
+qa/mymusic/
+qa/random_music/
+qa/random_generation_music/
+qa/sound_effects/
+resources/optimized_notices/
+resources/bridge/
+test/test_images/
+test/*.jpg
+test/*.png
+test/*.jpeg
+test/*.gif
+
+# ========================================================================
+# 4. 测试文件和演示文件（不需要推送）
+# ========================================================================
+# 所有测试脚本
+test/
+evoliu/test_*.py
+evoliu/demo_*.py
+
+# 测试报告和分析文档（中文）
+evoliu/*测试*.md
+evoliu/*报告*.md
+evoliu/*分析*.md
+evoliu/*演示*.md
+evoliu/*说明*.md
+evoliu/*部署*.md
+
+# Jupyter Notebooks（测试用）
+*.ipynb
+sisi_rag/langchain/cookbook/
+
+# ========================================================================
+# 5. 开发环境和IDE配置
+# ========================================================================
+.vscode/
+.idea/
+.qwen/
+*.swp
+*.swo
+*~
+
+# Python 虚拟环境
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+asr/funasr/venv/
+
+# ========================================================================
+# 6. 第三方工具和大型依赖（建议使用 submodule 或文档说明）
+# ========================================================================
+# EasySpider 工具（太大，建议文档中说明下载地址）
+llm/a2a/tools/EasySpider/.temp_to_pub/
+llm/a2a/tools/EasySpider/ElectronJS/tasks/
+
+# 3D-Speaker 和 FunAudioLLM（大型模型）
+asr/3D-Speaker/
+test/FunAudioLLM/
+
+# Voice Clone 模型（1.4GB+ 的 Whisper 模型）
+llm/a2a/tools/voice_clones/models/
+
+# Rasa 模型文件
+test/rasa/models/
+
+# FFmpeg 可执行文件（太大）
+test/ovr_lipsync/ffmpeg/
+
+# OpenClaw 文档（如果是外部项目）
+evoliu/openclaw-docs/
+
+# OpenClaw 工具仓库（独立项目，包含自身 .git / node_modules，不应纳入 SmartSisi 提交）
+evoliu/adventurers_guild/openclaw/
+
+# ========================================================================
+# 7. 编译和构建产物
+# ========================================================================
+# ESP32 构建产物
+sisi-mini/build/
+sisi-mini/managed_components/
+SISIeyes/build/
+SISIeyes/managed_components/
+*.bin
+*.elf
+
+# WebUI 构建产物和静态大文件
+webui/build/
+webui/static/*.gif
+webui/static/pyodide/
+webui/backend/open_webui/static/fonts/*.ttf
+webui/backend/open_webui/static/fonts/*.otf
+webui/backend/open_webui/static/fonts/*.woff
+webui/backend/open_webui/static/fonts/*.woff2
+
+# Node.js 依赖与缓存
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Docker 相关
+docker/*.lnk
+*.lnk
+
+# ========================================================================
+# 8. 大文件和二进制文件
+# ========================================================================
+*.weights
+*.pt
+*.pth
+*.onnx
+*.h5
+*.model
+*.whl
+
+# Redis 调试符号文件（PDB）
+services/redis/*.pdb
+
+# 可执行文件
+*.exe
+*.dll
+
+# ========================================================================
+# 9. 操作系统生成的文件
+# ========================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# ========================================================================
+# 10. Git 相关
+# ========================================================================
+.git/
+.gitattributes
+
+# ========================================================================
+# 11. 特定文件排除
+# ========================================================================
+# 包含敏感信息的特定文件
+shell/brew.sh
+llm/a2a/tools/asianight/项目逻辑说明.md
+llm/a2a/tools/BiliNote/BillNote_frontend/deploy/start.sh
+
+# 公会系统数据
+evoliu/data/
+evoliu/guild_data/
+
+# ========================================================================
+# 注意：以下文件需要保留（示例配置）
+# ========================================================================
+!system.conf.example
+!webui/.env.example
+!README.md
+!requirements.txt
+!LICENSE
+
+.worktrees/
+
+/.worktrees/
+.worktrees
+
+# Runtime probe outputs (generated)
+runtime/liuye_probe_*.json
+
+# Downloaded installer artifact
+gateway/network/tailscale_runtime/*.msi
+
+# Social uploader generated covers and local account config
+llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/xhs_cover_*.html
+llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/xhs_cover_*.png
+llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/accounts.ini
