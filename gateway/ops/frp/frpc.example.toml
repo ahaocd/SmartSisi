@@ -1,0 +1,14 @@
+serverAddr = "38.182.122.28"
+serverPort = 7000
+
+auth.method = "token"
+auth.token = "REPLACE_WITH_FRPS_TOKEN"
+
+transport.tls.enable = true
+
+[[proxies]]
+name = "sisi_gateway_tcp"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9102
+remotePort = 19102

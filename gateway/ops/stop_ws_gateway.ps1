@@ -1,5 +1,6 @@
 param(
-    [int]$Port = 9102
+    [int]$Port = 9102,
+    [switch]$StopFrpc
 )
 
 $matches = netstat -ano | Select-String -Pattern (":$Port\\s+.*LISTENING\\s+(\\d+)$")
@@ -26,5 +27,16 @@ foreach ($pid in $pids) {
         Write-Host "Stopped PID $pid on port $Port."
     } catch {
         Write-Host ("Failed to stop PID {0}: {1}" -f $pid, $_.Exception.Message)
+    }
+}
+
+if ($StopFrpc) {
+    Get-Process -Name frpc -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            Stop-Process -Id $_.Id -Force
+            Write-Host "Stopped frpc PID $($_.Id)."
+        } catch {
+            Write-Host ("Failed to stop frpc PID {0}: {1}" -f $_.Id, $_.Exception.Message)
+        }
     }
 }

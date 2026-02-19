@@ -61,6 +61,7 @@ def notify_tts_event(text, audio_file):
 import os
 import time
 import re
+import shlex
 import threading
 import copy
 import pyaudio
@@ -241,6 +242,9 @@ controlSocketThread = None
 transport_health_monitor_thread = None
 transport_health_monitor_stop_event = None
 active_transport_topology = None
+frp_client_process = None
+frp_client_managed = False
+frp_client_launch_meta = {}
 _transport_runtime_lock = threading.Lock()
 _transport_runtime_state = {
     "running": False,
@@ -266,6 +270,152 @@ def get_transport_runtime_status():
     except Exception:
         snapshot["control_lane"] = {}
     return snapshot
+
+
+def _resolve_runtime_path(raw_value, *, default_rel):
+    project_root = Path(__file__).resolve().parent.parent
+    text = str(raw_value or "").strip()
+    candidate = Path(text) if text else Path(default_rel)
+    if not candidate.is_absolute():
+        candidate = project_root / candidate
+    return str(candidate.resolve())
+
+
+def _start_optional_frp_client():
+    global frp_client_process
+    global frp_client_managed
+    global frp_client_launch_meta
+
+    enabled = _is_enabled_flag(config_util.get_value("frp_client_auto_launch_enabled", False))
+    frp_client_launch_meta = {
+        "enabled": bool(enabled),
+        "managed": False,
+        "running": False,
+        "pid": 0,
+        "exe_path": "",
+        "config_path": "",
+    }
+    if not enabled:
+        util.log(1, "[frp] local frpc auto-launch disabled")
+        return frp_client_launch_meta
+
+    default_exe_name = "frpc.exe" if os.name == "nt" else "frpc"
+    default_exe_rel = os.path.join("gateway", "ops", "frp", default_exe_name)
+    default_cfg_rel = os.path.join("gateway", "ops", "frp", "frpc.local.toml")
+    exe_path = _resolve_runtime_path(
+        config_util.get_value("frp_client_exe_path", ""),
+        default_rel=default_exe_rel,
+    )
+    cfg_path = _resolve_runtime_path(
+        config_util.get_value("frp_client_config_path", ""),
+        default_rel=default_cfg_rel,
+    )
+    extra_args_text = str(config_util.get_value("frp_client_extra_args", "") or "").strip()
+
+    frp_client_launch_meta["exe_path"] = exe_path
+    frp_client_launch_meta["config_path"] = cfg_path
+
+    if not os.path.exists(exe_path):
+        util.log(2, f"[frp] frpc executable not found: {exe_path}")
+        frp_client_launch_meta["error"] = "frpc_executable_missing"
+        return frp_client_launch_meta
+    if not os.path.exists(cfg_path):
+        util.log(2, f"[frp] frpc config not found: {cfg_path}")
+        frp_client_launch_meta["error"] = "frpc_config_missing"
+        return frp_client_launch_meta
+
+    cmd = [exe_path, "-c", cfg_path]
+    if extra_args_text:
+        try:
+            cmd.extend(shlex.split(extra_args_text))
+        except Exception as e:
+            util.log(2, f"[frp] ignore invalid frpc extra args: {str(e)}")
+
+    startupinfo = None
+    creationflags = 0
+    if os.name == "nt":
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        except Exception:
+            startupinfo = None
+            creationflags = 0
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(Path(__file__).resolve().parent.parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            startupinfo=startupinfo,
+            creationflags=creationflags,
+        )
+        time.sleep(0.6)
+        if process.poll() is not None:
+            frp_client_process = None
+            frp_client_managed = False
+            frp_client_launch_meta.update(
+                {
+                    "managed": True,
+                    "running": False,
+                    "exit_code": int(process.returncode or 0),
+                }
+            )
+            util.log(
+                2,
+                f"[frp] local frpc exited immediately code={process.returncode} exe={exe_path} config={cfg_path}",
+            )
+            return frp_client_launch_meta
+
+        frp_client_process = process
+        frp_client_managed = True
+        frp_client_launch_meta.update(
+            {
+                "managed": True,
+                "running": True,
+                "pid": int(process.pid),
+            }
+        )
+        util.log(1, f"[frp] local frpc started pid={process.pid} config={cfg_path}")
+        return frp_client_launch_meta
+    except Exception as e:
+        frp_client_process = None
+        frp_client_managed = False
+        frp_client_launch_meta["error"] = str(e)
+        util.log(2, f"[frp] failed to start local frpc: {str(e)}")
+        return frp_client_launch_meta
+
+
+def _stop_optional_frp_client():
+    global frp_client_process
+    global frp_client_managed
+    global frp_client_launch_meta
+
+    process = frp_client_process
+    if process is None:
+        return
+
+    try:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except Exception:
+                process.kill()
+                process.wait(timeout=2)
+            util.log(1, f"[frp] local frpc stopped pid={process.pid}")
+        else:
+            util.log(1, f"[frp] local frpc already exited code={process.returncode}")
+    except Exception as e:
+        util.log(2, f"[frp] failed to stop local frpc: {str(e)}")
+    finally:
+        frp_client_process = None
+        frp_client_managed = False
+        if isinstance(frp_client_launch_meta, dict):
+            frp_client_launch_meta["running"] = False
+            frp_client_launch_meta["pid"] = 0
 
 
 # 运行状态
@@ -931,6 +1081,9 @@ def stop():
     global active_transport_topology
     global deviceSocketServer
     global controlSocketServer
+    global frp_client_process
+    global frp_client_managed
+    global frp_client_launch_meta
 
     if os.name == 'nt':
         util.log(1, '正在停止启动脚本管理的进程...')
@@ -941,6 +1094,7 @@ def stop():
 
     util.log(1, '正在关闭服务...')
     __running = False
+    _stop_optional_frp_client()
     try:
         get_transport_control_coordinator().set_wake_hit_handler(None)
     except Exception:
@@ -1047,6 +1201,7 @@ def start():
     global control_socket_bridge_service_thread, controlSocketThread
     global transport_health_monitor_thread, transport_health_monitor_stop_event
     global active_transport_topology
+    global frp_client_process, frp_client_managed, frp_client_launch_meta
     __running = True
 
     device = "default_input"
@@ -1271,6 +1426,8 @@ def start():
         _set_transport_runtime_state(degrade={"reason": "gateway_front_door_unavailable"})
         raise RuntimeError("gateway front door enabled but unavailable")
 
+    frp_client_launch_meta = _start_optional_frp_client()
+
     if not tcp_thread_alive or not tcp_listen_ready:
         util.log(
             2,
@@ -1303,6 +1460,14 @@ def start():
             "ready": bool(gateway_ready),
             "port": int(gateway_port),
             "control_backend": gateway_control_backend,
+        },
+        "frp_client": {
+            "enabled": bool((frp_client_launch_meta or {}).get("enabled", False)),
+            "managed": bool((frp_client_launch_meta or {}).get("managed", False)),
+            "running": bool((frp_client_launch_meta or {}).get("running", False)),
+            "pid": int((frp_client_launch_meta or {}).get("pid") or 0),
+            "config_path": str((frp_client_launch_meta or {}).get("config_path", "")),
+            "exe_path": str((frp_client_launch_meta or {}).get("exe_path", "")),
         },
     }
     health = {

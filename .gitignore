@@ -269,3 +269,7 @@ gateway/network/tailscale_runtime/*.msi
 llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/xhs_cover_*.html
 llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/xhs_cover_*.png
 llm/a2a/tools/social_auto_upload/uploader/xhs_uploader/accounts.ini
+
+# FRP local secrets and runtime files
+gateway/ops/frp/frpc.local.toml
+gateway/ops/frp/*.log

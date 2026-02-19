@@ -41,6 +41,7 @@ Target outcome:
 3. Build and install app, then verify runtime log includes selected endpoint.
 4. Start app-layer gateway:
   - `powershell -ExecutionPolicy Bypass -File gateway/ops/run_ws_gateway.ps1 -Port 9102 -MediaBackend ws://127.0.0.1:9002 -ControlBackend ws://127.0.0.1:9003`
+  - with FRP client lifecycle binding: `powershell -ExecutionPolicy Bypass -File gateway/ops/run_ws_gateway.ps1 -Port 9102 -WithFrpc`
   - stop: `powershell -ExecutionPolicy Bypass -File gateway/ops/stop_ws_gateway.ps1 -Port 9102`
 5. Android endpoint must point to gateway front door:
   - `wss://<public-host>/device`
@@ -63,5 +64,10 @@ Use `system.conf` keys under `[key]`:
 10. `gateway_control_backend`
 11. `gateway_access_token`
 12. `gateway_max_message_bytes`
+13. `frp_client_auto_launch_enabled`
+14. `frp_client_exe_path`
+15. `frp_client_config_path`
+16. `frp_client_extra_args`
 
 When `gateway_front_door_enabled=true`, booter starts gateway with the same process lifecycle as media/control TCP-WS bridges and reports status in `[transport] network services status`.
+When `frp_client_auto_launch_enabled=true`, booter also starts local `frpc` when Sisi starts and stops it when Sisi stops, so `frpc` is not a machine-wide persistent daemon.
